@@ -99,8 +99,11 @@ export function createGoblinsSystem(): System {
               creep.behaviour = 'chase';
               const speed = GOBLINS.SPEED * w.modifier(creep.id, MOD.SpeedMult, 1.0);
               const dir = w.nextStep(creep, target);
-              creep.x += dir.x * speed * w.dt;
-              creep.y += dir.y * speed * w.dt;
+              const nx = creep.x + dir.x * speed * w.dt;
+              const ny = creep.y + dir.y * speed * w.dt;
+              if (w.walkable(nx, ny)) { creep.x = nx; creep.y = ny; }
+              else if (w.walkable(nx, creep.y)) creep.x = nx;
+              else if (w.walkable(creep.x, ny)) creep.y = ny;
               creep.facing = Math.atan2(dir.y, dir.x);
             }
             break;

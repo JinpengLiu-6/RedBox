@@ -36,8 +36,10 @@ export function createAbilitySystem(): System {
         w.emit({ type: 'ability_used', atMs: w.now, playerId: p.id, classId, label: spec.id, value: slot });
       }
 
-      // Hero upkeep runs for everyone alive: detonating hazards, channelled skills.
-      for (const p of w.alivePlayers()) CLASS_MODULES[classIdOf(p)].tick?.(w, p);
+      // Hero upkeep runs for every hero, downed included: a grenade thrown just
+      // before its owner went down still has to land. Channelled skills end
+      // themselves on death (the hero sees `alive === false`).
+      for (const [, p] of w.state.players) CLASS_MODULES[classIdOf(p)].tick?.(w, p);
     },
   };
 }

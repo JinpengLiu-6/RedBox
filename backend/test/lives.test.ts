@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { MAP, PLAYER, MatchPhase, Outcome, spotsOf } from '@redbox/shared';
 import { Harness } from '../src/sim/harness.js';
 import { createLivesSystem } from '../src/systems/lives.js';
+import { createBoxesSystem } from '../src/systems/boxes.js';
 
 const BASE = { x: MAP.BASE.x, y: MAP.BASE.y };
 
@@ -194,4 +195,25 @@ test('full stack: death drops nothing weird and the match keeps running', () => 
   assert.equal(p.alive, false);
   assert.equal(p.lives, PLAYER.LIVES - 1);
   assert.equal(h.state.phase, MatchPhase.Playing);
+});
+
+test('one interact opens a crate OR claims the revive pickup, never both', () => {
+  const h = new Harness([createBoxesSystem(), createLivesSystem()]);
+  const rescuer = h.addPlayer('mage', { id: 'rescuer' });
+  const victim = h.addPlayer('troll', { id: 'victim' });
+  h.start();
+  exhaust(h, victim.id);
+  assert.equal(victim.lives, 0);
+
+  // Revive pickup dropped right on top of a closed crate, rescuer standing on both.
+  const crate = [...h.state.boxes.values()][0]!;
+  const pickup = h.world.spawnRevive({ x: crate.x, y: crate.y });
+  h.place(rescuer.id, crate.x, crate.y);
+
+  h.command(rescuer.id, 'interact', {}).tick();
+  const resolved = h.events('box_picked').length + h.events('trap_triggered').length;
+  assert.equal(resolved, 1, 'crates.ts resolved the press');
+  assert.equal(victim.alive, false, 'the same press did not also revive');
+  assert.equal(h.state.revives.has(pickup.id), true, 'pickup untouched');
+  assert.equal(h.events('player_revived').length, 0);
 });

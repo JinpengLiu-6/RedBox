@@ -9,7 +9,7 @@
  */
 
 import {
-  BOTS, BoxState, CRATES, MAP,
+  BOTS, BoxState, CRATES, MAP, PLAYER,
   classOf, isAbilityReady, isCarrying, isClosedCrate,
   type Box, type Creep, type Crystal, type Player, type System, type Vec2, type World,
 } from '@redbox/shared';
@@ -32,6 +32,17 @@ const RETREAT_RECOVER_HP_FRAC = 0.5;
 const ARRIVE_PX = 12;
 /** Interact when within this fraction of the pickup radius (safety margin). */
 const INTERACT_FRAC = 0.8;
+/**
+ * Wall-corner unsticking. `w.nextStep` steers the bot's centre, movement moves
+ * its body: on a corner the body is blocked while the path field flips between
+ * two tiles, so the bot grinds in place forever. Moving this little over
+ * UNSTICK_AFTER_MS of steering means wedged; sidestep for UNSTICK_MS.
+ */
+const UNSTICK_PROGRESS_PX = 8;
+const UNSTICK_AFTER_MS = 400;
+const UNSTICK_MS = 500;
+/** How far ahead a sidestep is tested for room. */
+const SIDESTEP_PROBE_PX = PLAYER.RADIUS * 2;
 
 const MELEE_CLASSES = new Set(['troll', 'brawler', 'warrior']);
 
@@ -48,6 +59,11 @@ interface Brain {
   goal: Goal;
   nextDecisionAt: number;
   retreating: boolean;
+  /** Where the bot stood when it last made headway, and when that was. */
+  lastPos: Vec2;
+  progressAtMs: number;
+  sidestep: Vec2;
+  sidestepUntilMs: number;
 }
 
 interface Hostile { id: string; pos: Vec2; }
@@ -57,8 +73,31 @@ export function createBotsSystem(): System {
 
   function brainOf(id: string): Brain {
     let b = brains.get(id);
-    if (!b) { b = { goal: { kind: 'idle' }, nextDecisionAt: 0, retreating: false }; brains.set(id, b); }
+    if (!b) {
+      b = {
+        goal: { kind: 'idle' }, nextDecisionAt: 0, retreating: false,
+        lastPos: { x: 0, y: 0 }, progressAtMs: 0, sidestep: { x: 0, y: 0 }, sidestepUntilMs: 0,
+      };
+      brains.set(id, b);
+    }
     return b;
+  }
+
+  /** The hero's whole body clears walls here, as movement.ts checks it. */
+  function bodyClear(w: World, x: number, y: number): boolean {
+    const r = PLAYER.RADIUS;
+    return w.walkable(x - r, y - r) && w.walkable(x + r, y - r)
+      && w.walkable(x - r, y + r) && w.walkable(x + r, y + r);
+  }
+
+  /** The perpendicular to `dir` with room for the body; left when both or neither fit. */
+  function sidestepFor(w: World, p: Player, dir: Vec2): Vec2 {
+    const left = { x: -dir.y, y: dir.x };
+    const right = { x: dir.y, y: -dir.x };
+    const fits = (d: Vec2) => bodyClear(w, p.x + d.x * SIDESTEP_PROBE_PX, p.y + d.y * SIDESTEP_PROBE_PX);
+    if (fits(left)) return left;
+    if (fits(right)) return right;
+    return left;
   }
 
   function hostilesNear(w: World, p: Player, radius: number): Hostile[] {
@@ -152,8 +191,35 @@ export function createBotsSystem(): System {
   }
 
   function steerTo(w: World, p: Player, to: Vec2) {
-    if (w.distance(p, to) <= ARRIVE_PX) { w.setIntent(p.id, 0, 0); return; }
+    const brain = brainOf(p.id);
+    if (w.distance(p, to) <= ARRIVE_PX) {
+      w.setIntent(p.id, 0, 0);
+      brain.progressAtMs = w.now;
+      brain.lastPos = { x: p.x, y: p.y };
+      brain.sidestepUntilMs = 0;
+      return;
+    }
+
+    if (w.distance(p, brain.lastPos) > UNSTICK_PROGRESS_PX) {
+      brain.lastPos = { x: p.x, y: p.y };
+      brain.progressAtMs = w.now;
+    }
+
+    if (w.now < brain.sidestepUntilMs) {
+      w.setIntent(p.id, brain.sidestep.x, brain.sidestep.y);
+      return;
+    }
+
     const d = w.nextStep(p, to);
+    if (w.now - brain.progressAtMs >= UNSTICK_AFTER_MS) {
+      brain.sidestep = sidestepFor(w, p, d);
+      brain.sidestepUntilMs = w.now + UNSTICK_MS;
+      brain.progressAtMs = w.now;
+      brain.lastPos = { x: p.x, y: p.y };
+      w.setIntent(p.id, brain.sidestep.x, brain.sidestep.y);
+      return;
+    }
+
     w.setIntent(p.id, d.x, d.y);
   }
 
@@ -249,6 +315,8 @@ export function createBotsSystem(): System {
         b.goal = { kind: 'idle' };
         b.nextDecisionAt = 0;
         b.retreating = false;
+        b.progressAtMs = 0;
+        b.sidestepUntilMs = 0;
       }
     },
 
@@ -265,7 +333,14 @@ export function createBotsSystem(): System {
 
       for (const p of bots) {
         const brain = brainOf(p.id);
-        if (!p.alive) { brain.goal = { kind: 'idle' }; brain.nextDecisionAt = 0; continue; }
+        if (!p.alive) {
+          brain.goal = { kind: 'idle' };
+          brain.nextDecisionAt = 0;
+          brain.sidestepUntilMs = 0;
+          brain.progressAtMs = w.now;
+          brain.lastPos = { x: p.x, y: p.y };
+          continue;
+        }
 
         const carryingNow = isCarrying(p);
         const goalChanged = (brain.goal.kind === 'deliver') !== carryingNow;

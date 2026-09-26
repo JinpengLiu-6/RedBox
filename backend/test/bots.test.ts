@@ -223,3 +223,17 @@ test('humans and dead bots are left alone; goals re-decide within REACTION_MS', 
   assert.equal(h.world.intentFor(human.id), undefined);
   assert.equal(h.world.intentFor(dead.id), undefined);
 });
+
+test('a bot wedged on a wall corner sidesteps instead of pushing into it forever', () => {
+  // (1392,976) sits in a corner where the path direction is blocked for a full body.
+  const { h } = make();
+  const start = { x: 1392, y: 976 };
+  const bot = h.addPlayer('troll', { id: 'bot_wedge', ...start, bot: true });
+  h.start();
+  h.place(bot.id, start.x, start.y);
+  for (const id of [...h.state.boxes.keys()]) h.state.boxes.delete(id);
+  const crate = addBox(h, 'drop', { x: 1424, y: 496 }, BoxState.Dropped, true);
+  h.seconds(6);
+  assert.ok(h.world.distance(bot, start) > 100, `bot got moving (moved ${h.world.distance(bot, start).toFixed(0)}px)`);
+  assert.ok(h.world.distance(bot, crate) < h.world.distance(start, crate), 'and made progress toward the crate');
+});
