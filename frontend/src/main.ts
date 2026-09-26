@@ -18,10 +18,16 @@ const resize = () => { canvas.width = innerWidth; canvas.height = innerHeight; }
 addEventListener('resize', resize); resize();
 
 const net = new Net();
-await net.connect(
-  { name: 'dev-' + Math.floor(Math.random() * 1000), classId: 'mage' },
-  { onError: (c, m) => (hud.textContent = `error ${c}: ${m}`) },
-);
+try {
+  await net.connect(
+    { name: 'dev-' + Math.floor(Math.random() * 1000), classId: 'mage' },
+    { onError: (c, m) => (hud.textContent = `error ${c}: ${m}`) },
+  );
+} catch (err) {
+  // Never fail silently: a blank page with dead controls is the worst outcome.
+  hud.textContent = `Could not join a game: ${err instanceof Error ? err.message : String(err)}\nReload the page to try again.`;
+  throw err;
+}
 net.room.onStateChange(() => net.sample());
 net.ready();
 

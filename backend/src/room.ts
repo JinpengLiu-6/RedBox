@@ -95,6 +95,7 @@ export class HeistRoom extends Room<MatchState> {
     this.onMessage(ClientMessage.Restart, () => {
       if (this.state.phase !== MatchPhase.Ended) return;
       resetForRestart(this.state);
+      void this.unlock();
       // Fresh systems: no closure state (timers, cooldown maps) survives a restart.
       this.world = this.newWorld();
     });
@@ -107,6 +108,9 @@ export class HeistRoom extends Room<MatchState> {
       if (humans.length > 0 && humans.every((p) => p.ready)) {
         if (BOTS.FILL_EMPTY_SLOTS) fillWithBots(s);
         s.phase = MatchPhase.Countdown;
+        // Once the match starts nobody can join, so take the room out of
+        // quick-match; otherwise new visitors get sent here and rejected.
+        void this.lock();
         this.countdownElapsed = 0;
       }
       return;

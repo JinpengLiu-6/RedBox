@@ -41,6 +41,14 @@ check('both players in the same match', (host.state as any).players.size === 2);
 const stranger = await new Client(ws).joinOrCreate<MatchState>(ROOM_NAME, opts('stranger'));
 check('quick-match never lands in a private room', stranger.roomId !== code, stranger.roomId);
 
+// A match in progress must never swallow a quick-match visitor.
+stranger.send('ready', {});
+await new Promise((r) => setTimeout(r, 4500));
+const late = await new Client(ws).joinOrCreate<MatchState>(ROOM_NAME, opts('late visitor')).catch((e) => e);
+check('quick-match skips matches already in progress', !(late instanceof Error) && late.roomId !== stranger.roomId,
+  late instanceof Error ? `rejected: ${late.message}` : `new room ${late.roomId}`);
+if (!(late instanceof Error)) await late.leave();
+
 await Promise.all([host.leave(), friend.leave(), stranger.leave()]);
 console.log(failures === 0 ? '\nDEPLOY OK' : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
