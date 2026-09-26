@@ -1,0 +1,15 @@
+{
+  "name": "@redbox/backend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "stub": "STUB=1 tsx src/index.ts"
+  },
+  "dependencies": {
+    "@colyseus/schema": "^3.0.0",
+    "@redbox/shared": "*",
+    "colyseus": "0.16.5"
+  }
+}

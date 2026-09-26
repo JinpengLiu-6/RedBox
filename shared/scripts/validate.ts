@@ -3,7 +3,8 @@
  * Proves the schema round-trips on the wire and that box identity never leaks.
  */
 import { Encoder, Decoder } from '@colyseus/schema';
-import { MatchState, Player, Box, BoxMark, BoxState, MatchPhase } from '../src/schema.js';
+import { MatchState, Player, Box } from '../src/schema.js';
+import { BoxMark, BoxState, MatchPhase } from '../src/enums.js';
 import { CLASSES, CLASS_INDEX, CLASS_IDS, MATCH, CRYSTALS, PROGRESSION } from '../src/index.js';
 
 let failures = 0;

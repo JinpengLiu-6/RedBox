@@ -3,7 +3,10 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2022", "DOM"],
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
@@ -14,8 +17,16 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@redbox/shared": ["./shared/src/index.ts"],
-      "@redbox/shared/*": ["./shared/src/*"]
-    }
+      "@redbox/shared": [
+        "./shared/src/index.ts"
+      ],
+      "@redbox/shared/*": [
+        "./shared/src/*"
+      ]
+    },
+    "types": [
+      "vite/client",
+      "node"
+    ]
   }
 }

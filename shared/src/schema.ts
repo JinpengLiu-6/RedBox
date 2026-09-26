@@ -1,152 +1,141 @@
 /**
- * Synced match state. Built with the schema() / t.* builder API rather than
- * decorators: decorators require experimentalDecorators + useDefineForClassFields
- * false, which conflicts with Vite/esbuild on the client.
+ * Synced match state.
+ *
+ * Built with the schema() builder rather than @type decorators: decorators need
+ * experimentalDecorators + useDefineForClassFields:false, which fights Vite and
+ * esbuild defaults. The builder produces an identical wire format without it.
+ *
+ * EVERY field declares an explicit default. Schema leaves undeclared fields
+ * `undefined`, so `player.hp -= damage` would silently produce NaN and poison
+ * the encoder for the rest of the match. Do not add a field without a default.
  *
  * Integrity rule: a box's true identity is NEVER in this state. Only `mark`,
- * which the server sets once a scan reveals it, is synced. Camouflaged boxes are
- * not inserted into `boxes` at all until revealed. Otherwise devtools defeats
+ * which the server sets once a scan reveals it, is synced, and camouflaged boxes
+ * are absent from `boxes` entirely until revealed. Otherwise devtools defeats
  * the Scanner role in ten seconds.
  */
 
-import { schema, t, type SchemaType } from '@colyseus/schema';
+import { schema } from '@colyseus/schema';
 
-export const MatchPhase = { Lobby: 0, Countdown: 1, Playing: 2, Ended: 3 } as const;
-export const Outcome = { None: 0, BoxVictory: 1, BossVictory: 2, Timeout: 3, Wipe: 4 } as const;
-export const BoxMark = { Unknown: 0, Real: 1, Fake: 2 } as const;
-export const BoxState = { Idle: 0, Carried: 1, Delivered: 2, Consumed: 3 } as const;
+const num = (type: 'uint8' | 'uint16' | 'uint32' | 'int8' | 'float32', d = 0) =>
+  ({ type, default: d }) as const;
+const str = (d = '') => ({ type: 'string', default: d }) as const;
+const bool = (d = false) => ({ type: 'boolean', default: d }) as const;
 
 export const Player = schema({
-  id: t.string(),
-  name: t.string(),
-  classIndex: t.uint8(),
-  connected: t.boolean(),
-  isBot: t.boolean(),
-  ready: t.boolean(),
+  id: str(),
+  name: str(),
+  classIndex: num('uint8'),
+  connected: bool(),
+  isBot: bool(),
+  ready: bool(),
 
-  x: t.float32(),
-  y: t.float32(),
-  facing: t.float32(),
-  moving: t.boolean(),
+  x: num('float32'),
+  y: num('float32'),
+  facing: num('float32'),
+  moving: bool(),
 
-  hp: t.uint16(),
-  maxHp: t.uint16(),
-  shield: t.uint16(),
-  lives: t.uint8(),
-  alive: t.boolean(),
-  respawnAtMs: t.uint32(),
-  reviveCharges: t.uint8(),
+  hp: num('uint16'),
+  maxHp: num('uint16'),
+  shield: num('uint16'),
+  lives: num('uint8'),
+  alive: bool(),
+  respawnAtMs: num('uint32'),
+  reviveCharges: num('uint8'),
 
-  /** Empty string when not carrying. Carriers cannot attack while non-empty. */
-  carryingBoxId: t.string(),
+  /** Empty string when not carrying. Nobody can attack while this is set. */
+  carryingBoxId: str(),
 
-  skillPoints: t.uint8(),
+  skillPoints: num('uint8'),
   /** Rank per ability slot, 0 = locked. */
-  ranks: t.array('uint8'),
-  /** Absolute elapsed-ms timestamps when each slot becomes usable again. */
-  cooldownReadyAtMs: t.array('uint32'),
+  ranks: { array: 'uint8' },
+  /** Elapsed-ms timestamps at which each slot becomes usable again. */
+  cooldownReadyAtMs: { array: 'uint32' },
 
-  /** Fake-box debuffs, as elapsed-ms expiry timestamps. 0 = inactive. */
-  damageAmpUntilMs: t.uint32(),
-  slowUntilMs: t.uint32(),
-  /** Carrier's Phase: untargetable by AI. */
-  phasedUntilMs: t.uint32(),
+  /** Fake-box debuffs as elapsed-ms expiry stamps. 0 = inactive. */
+  damageAmpUntilMs: num('uint32'),
+  slowUntilMs: num('uint32'),
+  phasedUntilMs: num('uint32'),
 
-  /** Exposed for the AI intent panel so judges can see why the boss chose a target. */
-  threatShare: t.float32(),
+  /** Surfaced so the AI intent panel can show why the boss picked a target. */
+  threatShare: num('float32'),
 }, 'Player');
-export type Player = SchemaType<typeof Player>;
+export type Player = InstanceType<typeof Player>;
 
 export const Box = schema({
-  id: t.string(),
-  x: t.float32(),
-  y: t.float32(),
+  id: str(),
+  x: num('float32'),
+  y: num('float32'),
   /** BoxMark. Unknown until a Scanner reveals it. Never leaks the truth. */
-  mark: t.uint8(),
+  mark: num('uint8'),
   /** BoxState. */
-  state: t.uint8(),
-  carriedBy: t.string(),
+  state: num('uint8'),
+  carriedBy: str(),
 }, 'Box');
-export type Box = SchemaType<typeof Box>;
+export type Box = InstanceType<typeof Box>;
 
 export const Crystal = schema({
-  id: t.string(),
-  x: t.float32(),
-  y: t.float32(),
-  hp: t.uint16(),
-  maxHp: t.uint16(),
-  destroyed: t.boolean(),
+  id: str(), x: num('float32'), y: num('float32'),
+  hp: num('uint16'), maxHp: num('uint16'), destroyed: bool(),
 }, 'Crystal');
-export type Crystal = SchemaType<typeof Crystal>;
+export type Crystal = InstanceType<typeof Crystal>;
 
 export const Creep = schema({
-  id: t.string(),
-  x: t.float32(),
-  y: t.float32(),
-  hp: t.uint16(),
-  maxHp: t.uint16(),
-  tier: t.uint8(),
-  targetId: t.string(),
+  id: str(), x: num('float32'), y: num('float32'),
+  hp: num('uint16'), maxHp: num('uint16'), tier: num('uint8'), targetId: str(),
 }, 'Creep');
-export type Creep = SchemaType<typeof Creep>;
+export type Creep = InstanceType<typeof Creep>;
 
 export const Boss = schema({
-  x: t.float32(),
-  y: t.float32(),
-  facing: t.float32(),
-  hp: t.uint16(),
-  maxHp: t.uint16(),
-  lives: t.uint8(),
-  /** False while crystals still shield it - all damage is ignored. */
-  vulnerable: t.boolean(),
-  vulnerableUntilMs: t.uint32(),
-  targetId: t.string(),
-  /** 'idle' | 'chase' | 'attack' | 'enraged' | 'shielded' */
-  behaviour: t.string(),
+  x: num('float32'), y: num('float32'), facing: num('float32'),
+  hp: num('uint16'), maxHp: num('uint16'), lives: num('uint8'),
+  /** False while crystals shield it - all damage is ignored. */
+  vulnerable: bool(),
+  vulnerableUntilMs: num('uint32'),
+  targetId: str(),
+  /** 'shielded' | 'chase' | 'attack' | 'enraged' */
+  behaviour: str('shielded'),
 }, 'Boss');
-export type Boss = SchemaType<typeof Boss>;
+export type Boss = InstanceType<typeof Boss>;
 
-/** The AI made visible. Rendered as the boss voice line plus the intent panel. */
+/** The AI made visible: the boss voice line plus the intent panel. */
 export const Director = schema({
-  focusClassIndex: t.int8(),
-  spawnHint: t.string(),
-  taunt: t.string(),
-  reasoning: t.string(),
-  updatedAtMs: t.uint32(),
+  focusClassIndex: num('int8', -1),
+  spawnHint: str('none'),
+  taunt: str(),
+  reasoning: str(),
+  updatedAtMs: num('uint32'),
   /** 'llm' when Modal answered, 'fallback' when the state machine is driving. */
-  source: t.string(),
+  source: str('fallback'),
 }, 'Director');
-export type Director = SchemaType<typeof Director>;
+export type Director = InstanceType<typeof Director>;
 
 export const ReviveResource = schema({
-  id: t.string(),
-  x: t.float32(),
-  y: t.float32(),
-  claimed: t.boolean(),
+  id: str(), x: num('float32'), y: num('float32'), claimed: bool(),
 }, 'ReviveResource');
-export type ReviveResource = SchemaType<typeof ReviveResource>;
+export type ReviveResource = InstanceType<typeof ReviveResource>;
 
 export const MatchState = schema({
-  phase: t.uint8(),
-  outcome: t.uint8(),
+  phase: num('uint8'),
+  outcome: num('uint8'),
   /** Milliseconds since match start. Every other timestamp is relative to this. */
-  elapsedMs: t.uint32(),
-  timeRemainingMs: t.uint32(),
+  elapsedMs: num('uint32'),
+  timeRemainingMs: num('uint32'),
 
-  /** 1..3, drives crystal requirement and wave strength. */
-  stage: t.uint8(),
-  crystalsDestroyed: t.uint8(),
-  crystalsRequired: t.uint8(),
-  boxesDelivered: t.uint8(),
+  /** 1..3. Drives crystal requirement and wave strength. */
+  stage: num('uint8', 1),
+  crystalsDestroyed: num('uint8'),
+  crystalsRequired: num('uint8'),
+  boxesDelivered: num('uint8'),
 
-  roomCode: t.string(),
+  roomCode: str(),
 
-  players: t.map(Player),
-  boxes: t.map(Box),
-  crystals: t.map(Crystal),
-  creeps: t.map(Creep),
-  revives: t.map(ReviveResource),
+  players: { map: Player },
+  boxes: { map: Box },
+  crystals: { map: Crystal },
+  creeps: { map: Creep },
+  revives: { map: ReviveResource },
   boss: Boss,
   director: Director,
 }, 'MatchState');
-export type MatchState = SchemaType<typeof MatchState>;
+export type MatchState = InstanceType<typeof MatchState>;
