@@ -58,8 +58,6 @@ export const PLAYER = {
   RESPAWN_MS: 5_000,
   /** Collision radius for movement against walls. */
   RADIUS: 14,
-  /** Movement intents older than this are dropped as stale. */
-  INPUT_MAX_AGE_MS: 500,
   REVIVE_PICKUP_RADIUS: 56,
   /** DEFAULT: each hero may be revived once per match. */
   REVIVES_PER_HERO: 1,
