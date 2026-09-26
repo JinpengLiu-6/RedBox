@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "stub": "STUB=1 tsx src/index.ts"
+    "stub": "STUB=1 tsx src/index.ts",
+    "start": "node --import tsx src/index.ts"
   },
   "dependencies": {
     "@colyseus/schema": "^3.0.0",
