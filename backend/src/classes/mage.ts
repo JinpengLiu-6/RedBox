@@ -56,7 +56,7 @@ const blink: AbilityHandler = ({ world: w, caster, range, aim }) => {
 };
 
 const meteor: AbilityHandler = ({ world: w, caster, params, range, aim }) => {
-  const pos = clampToRange(caster, aim, range);
+  const pos = w.nearestWalkable(clampToRange(caster, aim, range));
   w.spawnHazard({
     kind: METEOR.id, pos, radius: params.radius!,
     detonateAtMs: w.now + params.delayMs!, ownerId: caster.id,

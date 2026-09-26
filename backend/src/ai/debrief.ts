@@ -12,6 +12,8 @@ import {
 
 const DEBRIEF_TIMEOUT_MS = 15_000;
 const MAX_HIGHLIGHTS = 6;
+const MAX_SUMMARY_CHARS = 400;
+const MAX_HIGHLIGHT_CHARS = 120;
 
 interface HeroTally { deliveries: number; damageEvents: number; deaths: number; }
 
@@ -32,7 +34,7 @@ export function createDebriefSystem(): System {
         signal: AbortSignal.timeout(DEBRIEF_TIMEOUT_MS),
       })
         .then((res) => (res.ok ? res.json() : null))
-        .then((body: unknown) => validatePayload(body) ?? localDebrief(req))
+        .then((body: unknown) => validatePayload(body, req) ?? localDebrief(req))
         .catch(() => localDebrief(req))
         .then((payload) => w.broadcast(ServerMessage.Debrief, payload));
     },
@@ -52,15 +54,20 @@ function buildRequest(w: World): DebriefRequest {
   };
 }
 
-function validatePayload(body: unknown): DebriefPayload | null {
+/** Strict: an unusable summary or an MVP nobody played falls back to the local recap. */
+export function validatePayload(body: unknown, req: DebriefRequest): DebriefPayload | null {
   if (!body || typeof body !== 'object') return null;
   const b = body as Record<string, unknown>;
   if (typeof b.summary !== 'string' || b.summary.trim() === '') return null;
-  const highlights = Array.isArray(b.highlights)
-    ? b.highlights.filter((h): h is string => typeof h === 'string')
-    : [];
-  const out: DebriefPayload = { summary: b.summary.trim(), highlights };
-  if (typeof b.mvpPlayerId === 'string' && b.mvpPlayerId !== '') out.mvpPlayerId = b.mvpPlayerId;
+  const highlights = (Array.isArray(b.highlights) ? b.highlights : [])
+    .filter((h): h is string => typeof h === 'string' && h.trim() !== '')
+    .slice(0, MAX_HIGHLIGHTS)
+    .map((h) => h.trim().slice(0, MAX_HIGHLIGHT_CHARS));
+  const out: DebriefPayload = { summary: b.summary.trim().slice(0, MAX_SUMMARY_CHARS), highlights };
+  if (b.mvpPlayerId !== undefined && b.mvpPlayerId !== '') {
+    if (typeof b.mvpPlayerId !== 'string' || !req.players.some((p) => p.id === b.mvpPlayerId)) return null;
+    out.mvpPlayerId = b.mvpPlayerId;
+  }
   return out;
 }
 

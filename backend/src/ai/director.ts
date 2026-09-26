@@ -13,6 +13,8 @@ import {
 
 /** First snapshot is sent this long after the match starts. */
 const FIRST_CALL_MS = 8_000;
+/** Replicated to every client, so an LLM cannot flood the schema with prose. */
+const REASONING_MAX_CHARS = 240;
 
 interface Pending { wave: number; decision: DirectorDecision | null; settled: boolean; }
 
@@ -113,7 +115,7 @@ export function validateDecision(body: unknown): DirectorDecision | null {
     if (!b.threatBias || typeof b.threatBias !== 'object') return null;
     for (const [k, v] of Object.entries(b.threatBias as Record<string, unknown>)) {
       if (!isClassId(k)) return null;
-      if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+      if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return null;
       threatBias[k] = v;
     }
   }
@@ -126,7 +128,7 @@ export function validateDecision(body: unknown): DirectorDecision | null {
     focus,
     threatBias,
     taunt: taunt.trim().slice(0, DIRECTOR.TAUNT_MAX_CHARS),
-    reasoning: reasoning.trim(),
+    reasoning: reasoning.trim().slice(0, REASONING_MAX_CHARS),
   };
 }
 

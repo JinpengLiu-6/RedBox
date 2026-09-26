@@ -14,6 +14,12 @@ const [GRENADE, MINE, MEGA_BOMB] = CLASSES.dwarf.abilities;
 /** Planting time of armed mines (detonateAtMs 0 carries no timestamp). Keyed by entity, so nothing outlives the hazard. */
 const minePlantedAt = new WeakMap<Hazard, number>();
 
+/** Mines stay armed for `lifetimeMs` after the cast, then quietly disappear. */
+function mineExpired(w: World, hz: Hazard): boolean {
+  const planted = minePlantedAt.get(hz) ?? w.now;
+  return w.now - planted >= MINE.params.lifetimeMs!;
+}
+
 /** Id used by `w.damage` for a hostile returned by `query`. */
 function hostileId(w: World, e: Entity): string {
   if (e === w.state.boss) return 'boss';
@@ -45,7 +51,8 @@ const grenade: AbilityHandler = ({ world: w, caster, params, range, aim }) => {
 
 const mine: AbilityHandler = ({ world: w, caster, params, range, aim }) => {
   const pos = w.nearestWalkable(clampToRange(caster, aim, range));
-  w.spawnHazard({ kind: MINE.id, pos, radius: params.radius!, detonateAtMs: 0, ownerId: caster.id });
+  const hz = w.spawnHazard({ kind: MINE.id, pos, radius: params.radius!, detonateAtMs: 0, ownerId: caster.id });
+  minePlantedAt.set(hz, w.now);
   w.fx('mine', pos, { sourceId: caster.id, value: params.radius! });
   return true;
 };
@@ -68,9 +75,7 @@ export const dwarfModule: ClassModule = {
       if (hz.kind === GRENADE.id && w.now >= hz.detonateAtMs) due.push([hz, GRENADE.params.damage!]);
       else if (hz.kind === MEGA_BOMB.id && w.now >= hz.detonateAtMs) due.push([hz, MEGA_BOMB.params.damage!]);
       else if (hz.kind === MINE.id) {
-        let planted = minePlantedAt.get(hz);
-        if (planted === undefined) { planted = w.now; minePlantedAt.set(hz, planted); }
-        if (w.now - planted >= MINE.params.lifetimeMs!) { expired.push(hz); continue; }
+        if (mineExpired(w, hz)) { expired.push(hz); continue; }
         const triggered = w.query(hz, MINE.params.triggerRadius!, { kinds: ['creep', 'boss'] }).length > 0;
         if (triggered) due.push([hz, MINE.params.damage!]);
       }

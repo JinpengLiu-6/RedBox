@@ -100,6 +100,40 @@ test('mine waits, then explodes when a goblin walks in', () => {
   assert.equal(h.messages('fx').some((f) => f.kind === 'explosion'), true);
 });
 
+test('an untriggered mine disappears once its lifetime is over', () => {
+  const h = new Harness([createAbilitySystem()]);
+  const p = h.addPlayer('dwarf', OPEN);
+  h.start();
+  assert.equal(cast(h, p.id, 1, { x: OPEN.x + 100, y: OPEN.y }), true);
+  const { lifetimeMs } = CLASSES.dwarf.abilities[1].params;
+  h.seconds(lifetimeMs! / 1000 - 1);
+  assert.equal(h.state.hazards.size, 1, 'still armed just before the lifetime ends');
+  h.seconds(1.1);
+  assert.equal(h.state.hazards.size, 0, 'mine expired');
+  assert.equal(h.messages('fx').some((f) => f.kind === 'explosion'), false, 'expiry is silent');
+});
+
+test('mega bomb detonates after its long fuse and hits the whole blast radius', () => {
+  const h = new Harness([createAbilitySystem()]);
+  const p = h.addPlayer('dwarf', OPEN);
+  h.start();
+  const target = { x: OPEN.x + 250, y: OPEN.y };
+  const { damage, radius, delayMs } = CLASSES.dwarf.abilities[2].params;
+  const inside = h.world.spawnCreep({ x: target.x + radius! - 20, y: target.y });
+  const outside = h.world.spawnCreep({ x: target.x + radius! + 80, y: target.y });
+  assert.equal(cast(h, p.id, 2, target), true);
+  assert.equal(h.state.hazards.size, 1, 'bomb armed');
+
+  h.seconds(delayMs! / 1000 - 0.2);
+  assert.equal(inside.hp, inside.maxHp, 'nothing before the fuse burns down');
+  h.seconds(0.3);
+  assert.equal(inside.hp, Math.max(0, inside.maxHp - damage!), 'everything in the radius is hit');
+  assert.equal(outside.hp, outside.maxHp, 'outside the radius is safe');
+  assert.equal(p.hp, p.maxHp, 'no friendly fire');
+  assert.equal(h.state.hazards.size, 0, 'hazard cleared');
+  assert.equal(h.messages('fx').some((f) => f.kind === 'explosion'), true);
+});
+
 test('grenade explodes after its fuse; goblins spawn at full wave-1 hp', () => {
   const h = new Harness([createAbilitySystem()]);
   const p = h.addPlayer('dwarf', OPEN);
