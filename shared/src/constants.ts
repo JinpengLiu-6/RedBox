@@ -70,7 +70,7 @@ export const CRATES = {
   /** DEFAULT: no movement penalty while carrying. */
   CARRY_SPEED_MULT: 1.0,
   /** DEFAULT: a trap breaks and releases this many goblins, exactly once. */
-  TRAP_GOBLINS: 2,
+  TRAP_GOBLINS: 3,
   /** Placement is seeded per wave (reproducible); identities are random. */
   PLACEMENT_SEED: 1337,
 } as const;
@@ -103,9 +103,9 @@ export const BOSS = {
    * shows as a filling red area. Damage is scaled by bossMult.
    */
   ATTACKS: {
-    sweep: { damage: 55, range: 120, arcDeg: 160, windupMs: 700, recoverMs: 600 },
-    slam: { damage: 80, radius: 150, windupMs: 1000, recoverMs: 900 },
-    charge: { damage: 60, distance: 360, width: 80, windupMs: 800, recoverMs: 1000 },
+    sweep: { damage: 72, range: 120, arcDeg: 160, windupMs: 700, recoverMs: 600 },
+    slam: { damage: 104, radius: 150, windupMs: 1000, recoverMs: 900 },
+    charge: { damage: 78, distance: 360, width: 80, windupMs: 800, recoverMs: 1000 },
   },
   /** Minimum pause between attacks. */
   ATTACK_INTERVAL_MS: 1_200,
@@ -113,8 +113,8 @@ export const BOSS = {
 
 export const GOBLINS = {
   /** Scaled by WAVE_PLAN[wave].enemyMult. Speed and attack rate are NOT scaled. */
-  HP: 80,
-  DAMAGE: 12,
+  HP: 160,
+  DAMAGE: 24,
   SPEED: 160,
   RADIUS: 14,
   ATTACK_RANGE: 40,
