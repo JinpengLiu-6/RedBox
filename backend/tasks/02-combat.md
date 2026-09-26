@@ -1,23 +1,21 @@
-# 02 — Combat: basic attacks
+# 02 — Combat: basic attacks (left click)
 
 **You own:** `backend/src/systems/combat.ts`, `backend/test/combat.test.ts`
 
-## attack command (`w.commands('attack')`)
-- Attacker must be alive, `canAttack(p)` (selector: no weapon / carrying = no),
-  not stunned (`w.modifier(id, 'stunned', 0) > 0`).
-- Per-player cooldown (closure map): `spec.attackCooldownMs * w.modifier(id, 'attackCooldownMult')`.
-- Target:
-  1. `payload.targetId` if it is a hostile (creep id, crystal id, `'boss'`) within
-     `spec.attackRange + 24`;
-  2. else `payload.x/y` → nearest hostile to that point that is within range of the attacker;
-  3. else nearest hostile within range.
-  Crystals only count as a valid target for the `ranged` class.
-- `w.damage(targetId, spec.attackDamage, { sourceId: p.id, fromRanged: classId === 'ranged' })`.
-- `w.fx('attack', p, { sourceId: p.id, value: <angle to target> })` so the client can
-  draw the swing / projectile toward the target.
-
-Bots send the same `attack` commands every tick — the cooldown is what limits them.
+## attack (`w.commands('attack')`)
+- `canAttack(p, w.now)` (selector: alive, not carrying, off cooldown), not stunned.
+- Aim = `payload.x/y` (mouse, world px); missing → along `p.facing`. Set `p.facing`.
+- Cooldown: `p.attackReadyAtMs = now + spec.attackCooldownMs * w.modifier(id, 'attackCooldownMult')`.
+- Hostiles = goblins, standing towers, `'boss'` (if alive). Never players.
+- By `spec.attackKind` (`shared/src/classes.ts`):
+  - `bolt` (mage, dwarf): first hostile along the aim ray within `attackRange`,
+    only if `w.lineOfSight`. `w.fx('attack', p, { angle })` for the projectile.
+  - `swing` (troll): EVERY hostile within `attackRange` inside `attackArcDeg`.
+  - `strike` (brawler, warrior): the single nearest hostile within range and arc.
+- `w.damage(id, spec.attackDamage, { sourceId: p.id })` — DamageDealtMult and the
+  tower bonus on the boss are applied inside `damage()`; don't re-apply.
+- `w.fx('attack', p, { sourceId: p.id, angle })` on every swing, hit or miss.
 
 ## Test
-Ranged damages a crystal in range; tank cannot; carrier cannot; a carrying
-player cannot; second attack inside cooldown does nothing.
+Mage bolt hits a goblin in range; blocked by a wall → no hit. Troll swing hits
+two goblins in the arc. Carrying player cannot attack. Players never damaged.

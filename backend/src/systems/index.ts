@@ -2,8 +2,9 @@
  * Owned by the integrator. EVERY system is pre-registered here in execution
  * order, so no agent ever edits this file. Order matters:
  *   bots produce intents/commands first; movement and actions consume them;
+ *   crates resolve interactions before lives (revive pickups);
  *   owners of hp detect deaths after all damage for the tick has landed;
- *   AI reads the settled state last.
+ *   the optional AI layer reads the settled state last.
  */
 
 import type { System } from '@redbox/shared';
@@ -14,10 +15,10 @@ import { createDirectorSystem } from '../ai/director.js';
 import { createAbilitySystem } from './abilities.js';
 import { createBoxesSystem } from './boxes.js';
 import { createCombatSystem } from './combat.js';
-import { createCrystalsSystem } from './crystals.js';
+import { createGoblinsSystem } from './goblins.js';
 import { createLivesSystem } from './lives.js';
 import { createMovementSystem } from './movement.js';
-import { createWavesSystem } from './waves.js';
+import { createTowersSystem } from './towers.js';
 
 export function realSystems(): System[] {
   return [
@@ -26,9 +27,9 @@ export function realSystems(): System[] {
     createAbilitySystem(),
     createCombatSystem(),
     createBoxesSystem(),
-    createCrystalsSystem(),
     createBossSystem(),
-    createWavesSystem(),
+    createGoblinsSystem(),
+    createTowersSystem(),
     createLivesSystem(),
     createDirectorSystem(),
     createDebriefSystem(),

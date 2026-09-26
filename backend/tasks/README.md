@@ -1,33 +1,34 @@
-# Backend + AI fan-out
+# Backend fan-out — Goblin King Heist
 
-Launch one agent per brief, each in its own workspace. Prompt for each:
+One agent per brief, each in its own workspace off `main`. Prompt:
 
-> Read `backend/tasks/00-RULES.md`, then `backend/tasks/NN-*.md`, and do it.
+> Read `backend/tasks/00-RULES.md`, then `backend/tasks/<brief>.md`, and do it.
 
-| # | Brief | Owns | Depends on |
-|---|---|---|---|
-| 01 | boxes | `systems/boxes.ts` | — |
-| 02 | combat | `systems/combat.ts` | — |
-| 03 | crystals | `systems/crystals.ts` | — |
-| 04 | boss | `ai/boss.ts` | — |
-| 05 | waves | `systems/waves.ts` | — |
-| 06 | lives | `systems/lives.ts` | — |
-| 07 | bots | `ai/bots.ts` | — |
-| 08 | classes | `classes/*.ts` | — |
-| 09 | AI backend | `ai/director.ts`, `ai/debrief.ts` | — |
-| 10 | AI Modal | `ai/modal/**` | — |
+| Brief | Owns | Priority |
+|---|---|---|
+| 01-crates | `systems/boxes.ts` | **critical** — the wave objective |
+| 02-combat | `systems/combat.ts` | **critical** |
+| 04-boss | `ai/boss.ts` | **critical** |
+| 05-goblins | `systems/goblins.ts` | **critical** |
+| 06-lives | `systems/lives.ts` | **critical** |
+| 03-towers | `systems/towers.ts` | high (small) |
+| 08a-heroes-ranged | `classes/mage.ts`, `classes/dwarf.ts` | high |
+| 08b-heroes-melee | `classes/troll.ts`, `brawler.ts`, `warrior.ts` | high |
+| 07-bots | `ai/bots.ts` | solo/dev mode |
+| 09-ai-backend | `ai/director.ts`, `ai/debrief.ts` | optional showcase |
+| 10-ai-modal | `ai/modal/**` | optional showcase |
 
-"Depends on: —" everywhere is the point: every agent codes against `World` and
-tests in the headless harness, so nobody waits for anybody.
+No brief depends on another: everyone codes against `World` and tests in the
+headless harness.
 
-Integrator-owned (agents never edit): `shared/**`, `backend/src/world.ts`,
-`room.ts`, `index.ts`, `stub.ts`, `systems/index.ts`, `systems/movement.ts`,
-`systems/abilities.ts`, `classes/index.ts`, `sim/harness.ts`.
+Integrator-owned (never edited by agents): `shared/**`, `backend/src/world.ts`
+(walls, pathfinding, damage rules, **wave flow**), `room.ts` (lobby, restart,
+disconnect), `index.ts`, `stub.ts`, `systems/{index,movement,abilities}.ts`,
+`classes/index.ts`, `sim/harness.ts`.
 
-## Integration (after merges)
+## Integration
 ```bash
-npm run typecheck && npm test          # every agent's test + core
-npm run server                          # real systems (not the stub)
-npm run client                          # play it
-DIRECTOR_URL=… DEBRIEF_URL=… npm run server   # with Modal
+npm run typecheck && npm test && npm run validate
+npm run server        # real systems
+npm run client        # play (5 tabs = 5 players; fewer = bots fill)
 ```

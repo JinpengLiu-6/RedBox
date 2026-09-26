@@ -1,18 +1,13 @@
 /**
  * Synced match state.
  *
- * Built with the schema() builder rather than @type decorators: decorators need
- * experimentalDecorators + useDefineForClassFields:false, which fights Vite and
- * esbuild defaults. The builder produces an identical wire format without it.
+ * Built with the schema() builder, not @type decorators (decorators fight
+ * Vite/esbuild). EVERY field declares a default: schema leaves undeclared fields
+ * `undefined`, so `hp -= dmg` would produce NaN and poison the encoder.
  *
- * EVERY field declares an explicit default. Schema leaves undeclared fields
- * `undefined`, so `player.hp -= damage` would silently produce NaN and poison
- * the encoder for the rest of the match. Do not add a field without a default.
- *
- * Integrity rule: a box's true identity is NEVER in this state. Only `mark`,
- * which the server sets once a scan reveals it, is synced, and camouflaged boxes
- * are absent from `boxes` entirely until revealed. Otherwise devtools defeats
- * the Scanner role in ten seconds.
+ * Integrity rule: a closed crate's identity is NEVER in this state. Every
+ * unopened crate is identical on the wire (`mark` Unknown) until the server
+ * resolves the interaction. No field may reveal it earlier.
  */
 
 import { schema } from '@colyseus/schema';
@@ -27,46 +22,45 @@ export const Player = schema({
   name: str(),
   classIndex: num('uint8'),
   connected: bool(),
+  /** DEV/SOLO seat filler, always labelled in the UI. */
   isBot: bool(),
   ready: bool(),
 
   x: num('float32'),
   y: num('float32'),
+  /** Radians; also the aim direction for the local hero. */
   facing: num('float32'),
   moving: bool(),
 
   hp: num('uint16'),
   maxHp: num('uint16'),
-  shield: num('uint16'),
   lives: num('uint8'),
+  /** false = downed (waiting to respawn, or out of lives). */
   alive: bool(),
   respawnAtMs: num('uint32'),
-  reviveCharges: num('uint8'),
+  revivesLeft: num('uint8'),
 
-  /** Empty string when not carrying. Nobody can attack while this is set. */
+  /** Empty when not carrying. Carrying disables attacks and skills. */
   carryingBoxId: str(),
 
-  skillPoints: num('uint8'),
-  /** Rank per ability slot, 0 = locked. */
+  /** Per slot: 0 = locked, 1 = unlocked. Q is 1 from wave 1, E at wave 2, R at wave 3. */
   ranks: { array: 'uint8' },
   /** Elapsed-ms timestamps at which each slot becomes usable again. */
   cooldownReadyAtMs: { array: 'uint32' },
+  /** Elapsed-ms timestamp of the next basic attack. */
+  attackReadyAtMs: num('uint32'),
 
-  /** Fake-box debuffs as elapsed-ms expiry stamps. 0 = inactive. */
-  damageAmpUntilMs: num('uint32'),
-  slowUntilMs: num('uint32'),
-  phasedUntilMs: num('uint32'),
-
-  /** Surfaced so the AI intent panel can show why the boss picked a target. */
+  /** Share of the boss's targeting pressure, for the AI intent panel. */
   threatShare: num('float32'),
 }, 'Player');
 export type Player = InstanceType<typeof Player>;
 
+/** A crate. All closed crates look identical: only `id`, position, `state`. */
 export const Box = schema({
   id: str(),
   x: num('float32'),
   y: num('float32'),
-  /** BoxMark. Unknown until a Scanner reveals it. Never leaks the truth. */
+  /** BoxMark. Unknown until interacted with. */
   mark: num('uint8'),
   /** BoxState. */
   state: num('uint8'),
@@ -74,39 +68,68 @@ export const Box = schema({
 }, 'Box');
 export type Box = InstanceType<typeof Box>;
 
+/** A crystal tower. Each one destroyed raises the boss damage multiplier. */
 export const Crystal = schema({
   id: str(), x: num('float32'), y: num('float32'),
   hp: num('uint16'), maxHp: num('uint16'), destroyed: bool(),
 }, 'Crystal');
 export type Crystal = InstanceType<typeof Crystal>;
 
+/** A red goblin. */
 export const Creep = schema({
-  id: str(), x: num('float32'), y: num('float32'),
-  hp: num('uint16'), maxHp: num('uint16'), tier: num('uint8'), targetId: str(),
+  id: str(), x: num('float32'), y: num('float32'), facing: num('float32'),
+  hp: num('uint16'), maxHp: num('uint16'),
+  /** Wave the goblin belongs to (drives scaling). */
+  tier: num('uint8'),
+  targetId: str(),
+  /** 'idle' | 'chase' | 'windup' | 'recover' | 'stunned' */
+  behaviour: str('idle'),
+  /** While > now the goblin is telegraphing a hit: draw "!". */
+  windupUntilMs: num('uint32'),
 }, 'Creep');
 export type Creep = InstanceType<typeof Creep>;
 
 export const Boss = schema({
   x: num('float32'), y: num('float32'), facing: num('float32'),
-  hp: num('uint16'), maxHp: num('uint16'), lives: num('uint8'),
-  /** False while crystals shield it - all damage is ignored. */
-  vulnerable: bool(),
-  vulnerableUntilMs: num('uint32'),
+  hp: num('uint16'), maxHp: num('uint16'),
+  /** false once defeated: gone for the rest of the wave. Does NOT clear the wave. */
+  alive: bool(true),
   targetId: str(),
-  /** 'shielded' | 'chase' | 'attack' | 'enraged' */
-  behaviour: str('shielded'),
+  /** 'idle' | 'chase' | 'windup' | 'recover' | 'returning' | 'defeated' */
+  behaviour: str('idle'),
+  /** Attack being telegraphed: '' | 'sweep' | 'slam' | 'charge'. */
+  attack: str(),
+  /** When the telegraphed attack lands. */
+  attackAtMs: num('uint32'),
+  /** Where it lands (centre for slam, aim point for sweep/charge). */
+  attackX: num('float32'),
+  attackY: num('float32'),
 }, 'Boss');
 export type Boss = InstanceType<typeof Boss>;
 
-/** The AI made visible: the boss voice line plus the intent panel. */
+/**
+ * A telegraphed area on the ground: meteor, grenade, mega bomb, mine. The client
+ * draws `radius` and fills it until `detonateAtMs` (0 = armed, waits for a trigger).
+ */
+export const Hazard = schema({
+  id: str(),
+  /** Ability id or 'mine'. */
+  kind: str(),
+  x: num('float32'), y: num('float32'),
+  radius: num('uint16'),
+  detonateAtMs: num('uint32'),
+  ownerId: str(),
+}, 'Hazard');
+export type Hazard = InstanceType<typeof Hazard>;
+
+/** Optional AI layer made visible: taunt line + intent panel. */
 export const Director = schema({
   focusClassIndex: num('int8', -1),
-  spawnHint: str('none'),
   taunt: str(),
   reasoning: str(),
   updatedAtMs: num('uint32'),
-  /** 'llm' when Modal answered, 'fallback' when the state machine is driving. */
-  source: str('fallback'),
+  /** 'llm' | 'fallback' | '' (layer off). */
+  source: str(),
 }, 'Director');
 export type Director = InstanceType<typeof Director>;
 
@@ -122,11 +145,15 @@ export const MatchState = schema({
   elapsedMs: num('uint32'),
   timeRemainingMs: num('uint32'),
 
-  /** 1..3. Drives crystal requirement and wave strength. */
+  /** Current wave, 1..3. HUD: "WAVE {stage} / 3". */
   stage: num('uint8', 1),
-  crystalsDestroyed: num('uint8'),
-  crystalsRequired: num('uint8'),
+  /** Real crates delivered THIS wave. HUD: "CRATES {boxesDelivered} / {boxesRequired}". */
   boxesDelivered: num('uint8'),
+  boxesRequired: num('uint8'),
+  /** Towers destroyed this wave. */
+  crystalsDestroyed: num('uint8'),
+  /** 1.00 / 1.25 / 1.50 / 1.75 - authoritative, so every client shows the same value. */
+  bossDamageMult: num('float32', 1),
 
   roomCode: str(),
 
@@ -134,6 +161,7 @@ export const MatchState = schema({
   boxes: { map: Box },
   crystals: { map: Crystal },
   creeps: { map: Creep },
+  hazards: { map: Hazard },
   revives: { map: ReviveResource },
   boss: Boss,
   director: Director,

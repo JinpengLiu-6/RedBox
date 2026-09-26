@@ -1,117 +1,105 @@
-# Backend / Frontend contract
+# Backend / Frontend contract — Goblin King Heist
 
-Two developers, one seam. **Backend + AI** and **Frontend** never edit the same
-file. Everything they must agree on lives in `shared/`.
+Two halves, one seam. Everything both sides must agree on lives in `shared/`.
 
 ## Run it
 
 ```bash
 npm install
-npm run check        # typecheck + contract validation
-npm run stub         # terminal 1 - fake server, real protocol   :2567
-npm run client       # terminal 2 - debug view                   :5173
+npm run check        # typecheck + contract validation (plan numbers, map reachability)
+npm run stub         # terminal 1 - fake simulation, real protocol   :2567
+npm run client       # terminal 2 - debug view                       :5173
 npm run seam         # terminal 3 - asserts the seam end to end
 ```
 
-`npm run stub` is the point of this whole setup: it is the **real room, real
-schema, real message routing** with a fake simulation. The frontend can be built
-completely against it before a single gameplay system exists. When the real
-systems land, the client does not change.
+`npm run stub` is the real room, schema and message routing with a scripted
+simulation: waves, 15 crates, real pickup/delivery, trap goblins, towers falling,
+boss telegraphs, goblins, director lines. Build the whole client against it; the
+real systems change nothing the client can observe. `npm run server` = real systems.
 
 ## Ownership
 
-| Area | Owner | Files |
-|---|---|---|
-| Contract | **both** | `shared/src/**` |
-| Server, systems, AI | Backend | `backend/src/**` |
-| Rendering, UI, input, audio | Frontend | `frontend/src/**` except `net.ts` |
-| Connection layer | **both** | `frontend/src/net.ts` |
-| Seam test | **both** | `e2e/seam-check.ts` |
+| Area | Owner |
+|---|---|
+| `shared/src/**` | **both** — tell the other side before changing |
+| `backend/src/**` | backend |
+| `frontend/src/**` except `net.ts` | frontend |
+| `frontend/src/net.ts`, `e2e/seam-check.ts` | **both** |
 
-Rule: **if a change touches `shared/` or `net.ts`, tell the other person before
-you commit it.** Everything else you may change freely without asking.
+## The arena: `shared/src/map.ts`
 
-## What the frontend may assume
+ONE ASCII grid (`ARENA_ROWS`, 64×32 tiles of 32px) that the server collides and
+pathfinds against and the client renders. `#` wall, `.` floor, `,` grass, `B`
+base, `T` towers, `c` crate spots, `K` boss, `R` revival, `g` goblin guards.
+Draw walls from it — if the client draws walls the grid doesn't have, heroes
+walk through them. To change the layout, edit the grid; `npm run validate`
+proves everything stays reachable.
 
-1. `net.state` is the whole truth. Render from it; never keep a parallel copy.
-2. The client has **no authority**. It sends intent (`net.move`, `net.useAbility`)
-   and waits for the server to reflect the result. There is no prediction, and
-   adding some is a contract change.
-3. Positions come from `net.positionOf(id, fallback)`, which renders
-   `INTERP_DELAY_MS` in the past. Reading `player.x` directly will stutter at the
-   patch rate.
-4. Anything derived - cooldown readiness, whether a player can attack, effective
-   speed, box marks - has a helper in `shared/src/selectors.ts`. Use it rather
-   than re-deriving, otherwise the HUD and the server will disagree.
-5. The first frames run **before** the first patch decodes. Guard on
-   `state.crystals` being present; do not assume state is ready on frame 1.
+## Client API (`net.ts`) — the only thing that talks to the server
 
-## What is deliberately NOT in synced state
+| Input | Call |
+|---|---|
+| WASD | `net.move(dx, dy)` — only when the direction changes |
+| Left click | `net.attack(worldX, worldY)` — mouse aim in WORLD px |
+| Q / E / R | `net.useAbility(0 \| 1 \| 2, worldX, worldY)` |
+| F | `net.interact()` — pick up / drop crate, grab revival |
+| End screen | `net.restart()` — back to lobby, same party |
+| Lobby | `net.pickClass(id)`, `net.ready()` |
 
-These arrive as messages, because they are events rather than facts:
+Positions: `net.positionOf(id, fallback)` (interpolated, 100ms behind). Never
+render raw `x/y`. Guard the first frames: state is empty until the first patch.
 
-| Message | Payload | Use |
-|---|---|---|
-| `fx` | `FxPayload` | transient VFX: hits, heals, scan pulse, crystal break |
-| `event` | `MatchEvent` | the match log; feeds the kill feed and the AI |
-| `director` | `DirectorPayload` | boss decision when Modal answers |
-| `debrief` | `DebriefPayload` | post-match AI recap; **arrives after** phase Ended |
+## What the HUD reads (all authoritative, never computed client-side)
 
-The boss voice line is also mirrored into `state.director` so a client that
-joined late still sees the current taunt.
+| HUD | State |
+|---|---|
+| `WAVE n / 3` | `state.stage` |
+| `CRATES a / b` | `state.boxesDelivered` / `state.boxesRequired` |
+| Boss bar | `boss.hp / boss.maxHp`; `boss.alive === false` → "Defeated" |
+| Tower icons | `state.crystals` (3), `destroyed` |
+| Boss damage bonus | `state.bossDamageMult` (1.00 / 1.25 / 1.50 / 1.75) |
+| Party | `players`: name, `hp/maxHp`, `lives`, `alive`, `connected`, `isBot` ("(bot)") |
+| Skill locks | `player.ranks[slot] === 0` → label `SLOT_UNLOCK_LABEL[slot]` ("Wave 2"/"Wave 3") |
+| Cooldowns | `abilityCooldownProgress(player, slot, state.elapsedMs)` |
+| Carrying | `player.carryingBoxId !== ''` (attacks and skills disabled) |
 
-## The one integrity rule
+Heroes (`CLASSES`): Elf Mage, Axe Troll, Human Brawler, Dwarf Demolitionist,
+Dual-Blade Warrior. Ring colours are in `ClassSpec.color`. UI text is English.
 
-**A box's real identity is never sent to the client.** `Box.mark` is `Unknown`
-until a Scanner reveals it, and camouflaged boxes are not in `state.boxes` at
-all until found. Do not add an `isReal` field "just for the UI" - it would let
-anyone defeat the Scanner role with devtools, and the Scanner is the core of the
-game.
+## Telegraphs and effects
 
-## Version pins - do not casually upgrade
+- **Boss**: `boss.attack` (`sweep`/`slam`/`charge`), lands at `boss.attackAtMs` at
+  `(attackX, attackY)`. Fill the danger area from now until then — that is the
+  dodge window. Sizes: `BOSS.ATTACKS`.
+- **Goblins**: `creep.windupUntilMs > state.elapsedMs` → draw "!".
+- **Hazards** (`state.hazards`): meteor, grenade, mine, mega bomb. Circle of
+  `radius`, filling until `detonateAtMs` (0 = armed mine).
+- **One-shot FX**: `fx` messages, `FxKind` in `messages.ts` (closed union; ability
+  effects use the ability id). `angle` is set for attacks.
 
-These are pinned because the obvious `npm install latest` combination is broken:
+## The integrity rule
+
+**Closed crates are identical.** Real vs trap exists only on the server until
+someone presses F. No scanning, checkmarks, tints, minimap markers or any field
+that differs. `state = Dropped` means someone carried it, so it is known real.
+
+## Version pins — do not casually upgrade
 
 | Package | Pin | Why |
 |---|---|---|
-| `colyseus` | `0.16.5` | server 0.18 returns a flat seat reservation that `colyseus.js` cannot parse |
+| `colyseus` | `0.16.5` | server 0.18 returns a seat reservation `colyseus.js` cannot parse |
 | `colyseus.js` | `0.16.22` | newest released browser client; there is no 0.18 client |
 | `@colyseus/schema` | `^3.0.0` | required peer of colyseus 0.16 |
 
-Server 0.18.8 shipped 2026-09-23; the browser client has not followed. If you
-upgrade the server, the client silently fails to join with
-`Cannot read properties of undefined (reading 'name')`.
+## Traps already paid for
 
-## Two traps already paid for
-
-- **Schema fields have no implicit default.** An undeclared numeric field is
-  `undefined`, so `hp -= damage` yields `NaN` and poisons the encoder for the
-  rest of the match. Every field in `schema.ts` declares a default; keep it that
-  way when adding fields.
-- **`shared/src/schema.ts` is server-only at runtime.** The barrel re-exports it
-  as `export type *`. The client imports types, never the classes. Runtime enums
-  live in `enums.ts` precisely so the client can import them safely.
+- Schema fields have no implicit default → every field declares one.
+- `schema.ts` is server-only at runtime; the client imports types only, runtime
+  enums live in `enums.ts`.
+- `PROTOCOL_VERSION` is **2** (wave redesign). Bump it whenever the wire shape
+  changes; the server then rejects stale clients with a clear error.
 
 ## Changing the contract
 
-1. Say what you are changing and why.
-2. Edit `shared/src/**`.
-3. Bump `PROTOCOL_VERSION` in `protocol.ts` if the wire shape changed - the
-   server then rejects stale clients instead of behaving strangely.
-4. `npm run check` must pass.
-5. `npm run seam` must pass against the stub.
-
-## Changes the frontend needs to know (backend fan-out, 2026-09-26)
-
-- **Map is wide now**: `MAP` is 64×32 tiles (2048×1024). Base bottom-left, boss
-  top-centre — matching the target art. Read `MAP.*`, never hardcode.
-- **Abilities unlock per stage**, as in the art: Q (slot 0) is rank 1 from the
-  start, E unlocks at stage 2, R at stage 3. Render the lock from
-  `player.ranks[slot] === 0`; label it with the stage (`"Волна 2"`, `"Волна 3"`).
-  `state.stage` is the "ВОЛНА N/3" in the HUD.
-- **FX kinds are a closed union** — `FxKind` in `shared/src/messages.ts`. Ability
-  effects use the ability id. Unknown kinds will not happen; switch exhaustively.
-- **Walls**: not in the MVP server. If you draw walls, players will walk through
-  them until a shared wall grid lands in `shared/`. Decide together before drawing
-  a maze.
-- The stub (`npm run stub`) still works exactly as before.
+1. Say what and why. 2. Edit `shared/src/**`. 3. Bump `PROTOCOL_VERSION` if the
+wire changed. 4. `npm run check` and `npm run seam` pass.

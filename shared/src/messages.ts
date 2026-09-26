@@ -14,25 +14,28 @@ export const ClientMessage = {
   Move: 'move',
   Attack: 'attack',
   UseAbility: 'use_ability',
+  /** F: pick up / drop a crate, or grab a revival pickup. */
   Interact: 'interact',
-  SpendSkillPoint: 'spend_point',
+  /** From the end screen: back to the lobby with the same party. */
+  Restart: 'restart',
 } as const;
 export type ClientMessageType = (typeof ClientMessage)[keyof typeof ClientMessage];
 
 export interface JoinPayload { name: string; }
 export interface PickClassPayload { classId: ClassId; }
 export interface MovePayload { dx: number; dy: number; }
-export interface AttackPayload { targetId?: string; x?: number; y?: number; }
+/** Mouse aim point in world pixels. Left click. */
+export interface AttackPayload { x?: number; y?: number; targetId?: string; }
 export interface UseAbilityPayload {
-  /** 0, 1 or 2 - index into the class's ability list. */
+  /** 0 = Q, 1 = E, 2 = R. */
   slot: 0 | 1 | 2;
-  targetId?: string;
+  /** Mouse aim point in world pixels. */
   x?: number;
   y?: number;
+  targetId?: string;
 }
 /** Context-sensitive: pick up a box, drop it, grab a revive resource. */
 export interface InteractPayload { targetId?: string; }
-export interface SpendSkillPointPayload { slot: 0 | 1 | 2; }
 
 export interface ClientMessageMap {
   [ClientMessage.Join]: JoinPayload;
@@ -42,7 +45,7 @@ export interface ClientMessageMap {
   [ClientMessage.Attack]: AttackPayload;
   [ClientMessage.UseAbility]: UseAbilityPayload;
   [ClientMessage.Interact]: InteractPayload;
-  [ClientMessage.SpendSkillPoint]: SpendSkillPointPayload;
+  [ClientMessage.Restart]: Record<string, never>;
 }
 
 export const ServerMessage = {
@@ -57,15 +60,19 @@ export type ServerMessageType = (typeof ServerMessage)[keyof typeof ServerMessag
 
 /**
  * Every transient effect the server can fire. Ability effects use the ability id
- * from classes.ts (taunt, bulwark, shockwave, piercing_shot, volley, focus, blink,
- * phase, sprint, mend, barrier, cleanse, scan, ping, decoy).
+ * from classes.ts. Telegraphs that last (meteor, bombs, boss attacks) live in
+ * state (`hazards`, `boss.attack`), not here.
  */
 export type FxKind =
-  | 'hit' | 'heal' | 'attack' | 'death' | 'explosion'
-  | 'boss_slam' | 'crystal_break' | 'pickup' | 'fake_trigger'
-  | 'taunt' | 'bulwark' | 'shockwave' | 'piercing_shot' | 'volley' | 'focus'
-  | 'blink' | 'phase' | 'sprint' | 'mend' | 'barrier' | 'cleanse'
-  | 'scan' | 'ping' | 'decoy';
+  | 'hit' | 'heal' | 'attack' | 'death' | 'explosion' | 'stun'
+  | 'crystal_break' | 'pickup' | 'drop' | 'deliver' | 'trap'
+  | 'boss_sweep' | 'boss_slam' | 'boss_charge' | 'boss_defeated'
+  | 'frost_wave' | 'blink' | 'meteor'
+  | 'whirlwind' | 'earth_splitter' | 'rage'
+  | 'shoulder_charge' | 'ground_slam' | 'unstoppable'
+  | 'grenade' | 'mine' | 'mega_bomb'
+  | 'slashing_dash' | 'parry' | 'blade_dance'
+  | 'revive' | 'wave_cleared';
 
 export interface FxPayload {
   kind: FxKind;

@@ -1,3 +1,4 @@
+export * from './map.js';
 export * from './constants.js';
 export * from './classes.js';
 export * from './events.js';

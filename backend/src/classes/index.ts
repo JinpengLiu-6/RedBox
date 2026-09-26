@@ -1,16 +1,16 @@
-/** Owned by the integrator. Every class is pre-registered; agents only edit their class file. */
+/** Owned by the integrator. Every hero is pre-registered; agents only edit their hero file. */
 
 import type { ClassId, ClassModule } from '@redbox/shared';
-import { carrierModule } from './carrier.js';
-import { rangedModule } from './ranged.js';
-import { scannerModule } from './scanner.js';
-import { supportModule } from './support.js';
-import { tankModule } from './tank.js';
+import { brawlerModule } from './brawler.js';
+import { dwarfModule } from './dwarf.js';
+import { mageModule } from './mage.js';
+import { trollModule } from './troll.js';
+import { warriorModule } from './warrior.js';
 
 export const CLASS_MODULES: Record<ClassId, ClassModule> = {
-  tank: tankModule,
-  ranged: rangedModule,
-  carrier: carrierModule,
-  support: supportModule,
-  scanner: scannerModule,
+  mage: mageModule,
+  troll: trollModule,
+  brawler: brawlerModule,
+  dwarf: dwarfModule,
+  warrior: warriorModule,
 };

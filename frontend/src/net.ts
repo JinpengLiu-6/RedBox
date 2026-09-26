@@ -59,16 +59,18 @@ export class Net {
 
   /** Send only when the direction CHANGES, not every frame. */
   move(dx: number, dy: number) { this.room.send(ClientMessage.Move, { dx, dy }); }
-  attack(targetId?: string, x?: number, y?: number) {
-    this.room.send(ClientMessage.Attack, { targetId, x, y });
+  /** Left click. x/y = mouse aim point in WORLD pixels (convert from screen via the camera). */
+  attack(x: number, y: number) { this.room.send(ClientMessage.Attack, { x, y }); }
+  /** Q/E/R = slot 0/1/2, aimed at the mouse in world pixels. */
+  useAbility(slot: 0 | 1 | 2, x: number, y: number) {
+    this.room.send(ClientMessage.UseAbility, { slot, x, y } satisfies UseAbilityPayload);
   }
-  useAbility(slot: 0 | 1 | 2, opts: Omit<UseAbilityPayload, 'slot'> = {}) {
-    this.room.send(ClientMessage.UseAbility, { slot, ...opts });
-  }
-  interact(targetId?: string) { this.room.send(ClientMessage.Interact, { targetId }); }
+  /** F: pick up / drop a crate, or grab a revival pickup. */
+  interact() { this.room.send(ClientMessage.Interact, {}); }
   pickClass(classId: ClassId) { this.room.send(ClientMessage.PickClass, { classId }); }
   ready() { this.room.send(ClientMessage.Ready, {}); }
-  spendSkillPoint(slot: 0 | 1 | 2) { this.room.send(ClientMessage.SpendSkillPoint, { slot }); }
+  /** From the end screen: back to the lobby with the same party. */
+  restart() { this.room.send(ClientMessage.Restart, {}); }
 
   // ---- rendering positions -------------------------------------------------
 

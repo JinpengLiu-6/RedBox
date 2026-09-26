@@ -8,13 +8,13 @@ import type { ClassId } from './classes.js';
 
 export type MatchEventType =
   | 'match_start' | 'match_end'
+  | 'wave_start' | 'wave_cleared'
   | 'box_picked' | 'box_delivered' | 'box_dropped'
-  | 'fake_triggered'
-  | 'scan_used'
-  | 'crystal_destroyed' | 'stage_cleared'
-  | 'boss_vulnerable' | 'boss_life_removed' | 'boss_target_changed'
+  | 'trap_triggered'
+  | 'crystal_destroyed'
+  | 'boss_target_changed' | 'boss_attack' | 'boss_defeated'
   | 'player_died' | 'player_respawned' | 'player_revived'
-  | 'wave_spawned'
+  | 'goblins_spawned'
   | 'ability_used'
   | 'director_decision';
 
@@ -39,13 +39,15 @@ export type MatchEvent = MatchEventBase & {
 export interface DirectorSnapshot {
   elapsedMs: number;
   timeRemainingMs: number;
-  stage: number;
-  bossLives: number;
+  wave: number;
+  bossAlive: boolean;
   bossHpPct: number;
-  bossVulnerable: boolean;
-  crystalsDestroyed: number;
-  boxesDelivered: number;
-  carrierHasBox: boolean;
+  bossDamageMult: number;
+  towersDestroyed: number;
+  cratesDelivered: number;
+  cratesRequired: number;
+  /** Ids of players currently carrying a crate. */
+  carriers: string[];
   players: Array<{
     id: string;
     classId: ClassId;
@@ -62,11 +64,10 @@ export interface DirectorSnapshot {
 
 /** What the director is allowed to return. Anything else is rejected. */
 export interface DirectorDecision {
-  /** Class the boss should prioritise, or null to keep pure threat targeting. */
+  /** Hero the boss should prioritise, or null to keep normal targeting. */
   focus: ClassId | null;
-  /** Per-class multiplier applied to threat. Clamped by DIRECTOR bounds. */
+  /** Per-hero multiplier on boss targeting score. Clamped by DIRECTOR bounds. */
   threatBias: Partial<Record<ClassId, number>>;
-  spawnHint: 'flank' | 'base' | 'choke' | 'none';
   /** Shown on screen. This is what makes the AI visible to a judge. */
   taunt: string;
   /** One line of plain-language justification, shown in the AI intent panel. */
@@ -76,7 +77,6 @@ export interface DirectorDecision {
 export const FALLBACK_DECISION: DirectorDecision = {
   focus: null,
   threatBias: {},
-  spawnHint: 'none',
   taunt: '',
   reasoning: 'threat table only',
 };

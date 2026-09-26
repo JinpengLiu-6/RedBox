@@ -1,18 +1,16 @@
 /**
- * Pure read helpers over synced state, used by BOTH halves.
- *
- * Anything the client needs to derive - cooldown readiness, whether a player can
- * attack, effective speed - lives here rather than being reimplemented in the UI.
- * That is what stops the HUD and the server disagreeing about the same rule.
+ * Pure read helpers over synced state, used by BOTH halves. Anything the client
+ * derives (cooldown sweeps, whether you can attack, skill locks) lives here so
+ * the HUD and the server can never disagree about a rule.
  */
 
-import { BOXES, FAKE_BOX, PLAYER } from './constants.js';
+import { CRATES, bossDamageMultiplier } from './constants.js';
 import { CLASSES, CLASS_BY_INDEX, type AbilitySpec, type ClassId, type ClassSpec } from './classes.js';
-import { BoxMark } from './enums.js';
+import { BoxMark, BoxState } from './enums.js';
 import type { Box, MatchState, Player } from './schema.js';
 
 export function classIdOf(player: Pick<Player, 'classIndex'>): ClassId {
-  return CLASS_BY_INDEX[player.classIndex] ?? 'tank';
+  return CLASS_BY_INDEX[player.classIndex] ?? 'mage';
 }
 
 export function classOf(player: Pick<Player, 'classIndex'>): ClassSpec {
@@ -23,27 +21,17 @@ export function abilitySpec(player: Pick<Player, 'classIndex'>, slot: number): A
   return classOf(player).abilities[slot];
 }
 
-/** Rank is 1-based for lookups; rank 0 means the ability is still locked. */
-export function abilityCooldownMs(player: Player, slot: number): number {
-  const spec = abilitySpec(player, slot);
-  const rank = player.ranks[slot] ?? 0;
-  if (!spec || rank === 0) return Infinity;
-  return spec.cooldownMs[rank - 1] ?? spec.cooldownMs[0] ?? Infinity;
-}
-
-export function abilityMagnitude(player: Player, slot: number): number {
-  const spec = abilitySpec(player, slot);
-  const rank = player.ranks[slot] ?? 0;
-  if (!spec || rank === 0) return 0;
-  return spec.magnitude[rank - 1] ?? spec.magnitude[0] ?? 0;
+export function isCarrying(player: Pick<Player, 'carryingBoxId'>): boolean {
+  return player.carryingBoxId !== '';
 }
 
 export function isAbilityUnlocked(player: Player, slot: number): boolean {
   return (player.ranks[slot] ?? 0) > 0;
 }
 
+/** Server and HUD agree: alive, unlocked, off cooldown, and not carrying a crate. */
 export function isAbilityReady(player: Player, slot: number, nowMs: number): boolean {
-  if (!isAbilityUnlocked(player, slot)) return false;
+  if (!player.alive || isCarrying(player) || !isAbilityUnlocked(player, slot)) return false;
   return nowMs >= (player.cooldownReadyAtMs[slot] ?? 0);
 }
 
@@ -51,70 +39,56 @@ export function isAbilityReady(player: Player, slot: number, nowMs: number): boo
 export function abilityCooldownProgress(player: Player, slot: number, nowMs: number): number {
   const readyAt = player.cooldownReadyAtMs[slot] ?? 0;
   if (nowMs >= readyAt) return 1;
-  const total = abilityCooldownMs(player, slot);
-  if (!Number.isFinite(total) || total <= 0) return 1;
+  const total = abilitySpec(player, slot)?.cooldownMs ?? 0;
+  if (total <= 0) return 1;
   return Math.max(0, Math.min(1, 1 - (readyAt - nowMs) / total));
 }
 
-export function isCarrying(player: Pick<Player, 'carryingBoxId'>): boolean {
-  return player.carryingBoxId !== '';
+/** Everyone has a weapon; nobody can swing while carrying a crate. */
+export function canAttack(player: Player, nowMs: number): boolean {
+  return player.alive && !isCarrying(player) && nowMs >= player.attackReadyAtMs;
 }
 
-/** Carriers have no weapon at all, and nobody can swing while hauling a box. */
-export function canAttack(player: Player): boolean {
-  if (!player.alive) return false;
-  if (isCarrying(player)) return false;
-  return classOf(player).attackDamage > 0;
-}
-
-export function effectiveSpeed(player: Player, nowMs: number): number {
-  let speed = classOf(player).speed;
-  if (isCarrying(player)) speed *= BOXES.CARRY_SPEED_MULT;
-  if (player.slowUntilMs > nowMs) speed *= FAKE_BOX.SLOW_MULT;
-  return speed;
-}
-
-export function incomingDamageMultiplier(player: Player, nowMs: number): number {
-  return player.damageAmpUntilMs > nowMs ? FAKE_BOX.DAMAGE_AMP_MULT : 1;
-}
-
-export function isPhased(player: Player, nowMs: number): boolean {
-  return player.phasedUntilMs > nowMs;
+export function effectiveSpeed(player: Player): number {
+  const speed = classOf(player).speed;
+  return isCarrying(player) ? speed * CRATES.CARRY_SPEED_MULT : speed;
 }
 
 export function hpPct(entity: { hp: number; maxHp: number }): number {
   return entity.maxHp > 0 ? Math.max(0, Math.min(1, entity.hp / entity.maxHp)) : 0;
 }
 
-export function isPermanentlyDead(player: Player): boolean {
-  return player.lives <= 0 && !player.alive && player.reviveCharges <= 0;
+export function isOutOfLives(player: Player): boolean {
+  return player.lives <= 0 && !player.alive;
 }
 
-export function canBeRevived(player: Player): boolean {
-  return player.lives <= 0 && !player.alive && player.reviveCharges > 0;
-}
-
-export function respawnProgress(player: Player, nowMs: number): number {
+export function respawnProgress(player: Player, nowMs: number, respawnMs: number): number {
   if (player.alive || player.respawnAtMs <= 0) return 1;
   const remaining = player.respawnAtMs - nowMs;
-  if (remaining <= 0) return 1;
-  return Math.max(0, Math.min(1, 1 - remaining / PLAYER.RESPAWN_MS));
+  return remaining <= 0 ? 1 : Math.max(0, Math.min(1, 1 - remaining / respawnMs));
 }
 
-/** Only boxes the team has actually scanned. Unknown boxes render as neutral. */
+/** Closed crates on the map. Real and trap look identical - never branch on truth. */
+export function isClosedCrate(box: Pick<Box, 'state'>): boolean {
+  return box.state === BoxState.Idle;
+}
+
+/** A dropped crate was carried, so it is known-real and safe to grab. */
 export function isKnownReal(box: Pick<Box, 'mark'>): boolean {
   return box.mark === BoxMark.Real;
 }
-export function isKnownFake(box: Pick<Box, 'mark'>): boolean {
-  return box.mark === BoxMark.Fake;
-}
-export function isUnscanned(box: Pick<Box, 'mark'>): boolean {
-  return box.mark === BoxMark.Unknown;
+
+export function cratesRemaining(state: MatchState): number {
+  return Math.max(0, state.boxesRequired - state.boxesDelivered);
 }
 
-export function crystalsRemaining(state: MatchState): number {
-  return Math.max(0, state.crystalsRequired - state.crystalsDestroyed);
+export function towersStanding(state: MatchState): number {
+  let n = 0;
+  for (const [, c] of state.crystals) if (!c.destroyed) n++;
+  return n;
 }
+
+export { bossDamageMultiplier };
 
 export function livePlayers(state: MatchState): Player[] {
   return [...state.players.values()].filter((p) => p.alive);

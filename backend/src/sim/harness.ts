@@ -33,12 +33,31 @@ export class Harness {
 
   addPlayer(classId: ClassId, opts: { id?: string; x?: number; y?: number; bot?: boolean } = {}): Player {
     const p = addPlayer(this.state, opts.id ?? classId, classId, classId, opts.bot ?? false);
+    this.pinned.set(p.id, opts);
     if (opts.x !== undefined) p.x = opts.x;
     if (opts.y !== undefined) p.y = opts.y;
     return p;
   }
 
-  start() { this.world.start(); return this; }
+  private pinned = new Map<string, { x?: number; y?: number }>();
+
+  /** Runs init + wave 1. Explicit x/y given to addPlayer survive the wave-start reset. */
+  start() {
+    this.world.start();
+    for (const [id, o] of this.pinned) {
+      const p = this.state.players.get(id);
+      if (p && o.x !== undefined) p.x = o.x;
+      if (p && o.y !== undefined) p.y = o.y;
+    }
+    return this;
+  }
+
+  /** Put a player somewhere mid-test. */
+  place(playerId: string, x: number, y: number) {
+    const p = this.state.players.get(playerId)!;
+    p.x = x; p.y = y;
+    return this;
+  }
 
   tick(n = 1) {
     for (let i = 0; i < n; i++) this.world.step(1 / TICK_RATE);
