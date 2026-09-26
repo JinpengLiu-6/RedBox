@@ -10,7 +10,14 @@
  *
  * The windup IS the dodge window: `attack`, `attackAtMs` and `attackX/Y` are
  * synced so the client draws the telegraph, and damage is resolved against
- * whoever stands in the area when the hit LANDS, never at windup.
+ * whoever stands in the area when the hit LANDS, never at windup. The hit areas
+ * are exactly the numbers in `BOSS.ATTACKS` measured to the player's centre
+ * (sweep `range` + `arcDeg`, slam `radius`, charge `width / 2` off the lane),
+ * so a client that draws those numbers draws the true dodge line.
+ *
+ * Every change of `boss.targetId` is logged as `boss_target_changed`, drops
+ * included (`targetId: ''`, `label` = why), so the event log never claims the
+ * King is still hunting someone it let go.
  *
  * Per-match state lives inside the factory closure.
  */
@@ -22,6 +29,8 @@ import {
 import type { Boss, Player } from '@redbox/shared/schema';
 
 type AttackKind = keyof typeof BOSS.ATTACKS;
+/** Why a target was dropped: the `label` of a `boss_target_changed` with `targetId: ''`. */
+type DropReason = 'lost' | 'leash' | 'defeated' | 'wave_reset';
 
 /** Attacks are cycled in this order. */
 const CYCLE: readonly AttackKind[] = ['sweep', 'slam', 'charge'];
@@ -158,11 +167,16 @@ export function createBossSystem(): System {
     return raw * w.threatBias(classIdOf(p));
   }
 
-  function setTarget(w: World, b: Boss, p: Player | undefined) {
-    b.targetId = p ? p.id : '';
+  /** The only writer of `boss.targetId`: every change, drops included, is logged. */
+  function setTarget(w: World, b: Boss, p: Player | undefined, dropReason: DropReason = 'lost') {
+    const next = p ? p.id : '';
     targetSince = w.now;
+    if (next === b.targetId) return;
+    b.targetId = next;
     if (p) {
       w.emit({ type: 'boss_target_changed', atMs: w.now, targetId: p.id, playerId: p.id, classId: classIdOf(p) });
+    } else {
+      w.emit({ type: 'boss_target_changed', atMs: w.now, targetId: '', label: dropReason });
     }
   }
 
@@ -184,7 +198,7 @@ export function createBossSystem(): System {
       const s = score(w, b, p);
       if (s !== undefined && s > bestScore) { best = p; bestScore = s; }
     }
-    if (best !== cur || (!best && b.targetId !== '')) setTarget(w, b, best);
+    if (best !== cur || (!best && b.targetId !== '')) setTarget(w, b, best, 'lost');
     return best;
   }
 
@@ -206,7 +220,7 @@ export function createBossSystem(): System {
 
   function breakLeash(w: World, b: Boss) {
     leashed = true;
-    if (b.targetId !== '') setTarget(w, b, undefined);
+    setTarget(w, b, undefined, 'leash');
     goHome(w, b);
   }
 
@@ -255,7 +269,7 @@ export function createBossSystem(): System {
       angle = Math.atan2(aim.y - b.y, aim.x - b.x);
       for (const p of w.alivePlayers()) {
         const d = w.distance(b, p);
-        if (d > spec.range + PLAYER.RADIUS) continue;
+        if (d > spec.range) continue;
         if (d > 1e-3 && angleDiff(Math.atan2(p.y - b.y, p.x - b.x), angle) > half) continue;
         if (!w.lineOfSight(b, p)) continue;
         hits.push(p);
@@ -264,7 +278,7 @@ export function createBossSystem(): System {
       const spec = BOSS.ATTACKS.slam;
       fxPos = aim;
       for (const p of w.alivePlayers()) {
-        if (w.distance(aim, p) > spec.radius + PLAYER.RADIUS) continue;
+        if (w.distance(aim, p) > spec.radius) continue;
         if (!w.lineOfSight(aim, p)) continue;
         hits.push(p);
       }
@@ -275,7 +289,7 @@ export function createBossSystem(): System {
       angle = Math.atan2(chargeDir.y, chargeDir.x);
       for (const p of w.alivePlayers()) {
         const q = closestOnSegment(p, from, to);
-        if (w.distance(q, p) > spec.width / 2 + PLAYER.RADIUS) continue;
+        if (w.distance(q, p) > spec.width / 2) continue;
         if (!w.lineOfSight(q, p)) continue;
         hits.push(p);
       }
@@ -315,7 +329,7 @@ export function createBossSystem(): System {
     b.hp = 0;
     b.alive = false;
     b.behaviour = 'defeated';
-    b.targetId = '';
+    setTarget(w, b, undefined, 'defeated');
     clearAttack(b);
     w.fx('boss_defeated', b, killer ? { sourceId: killer.id } : {});
     const e: MatchEvent = { type: 'boss_defeated', atMs: w.now, value: w.wave };
@@ -338,7 +352,7 @@ export function createBossSystem(): System {
       b.y = HOME.y;
       b.facing = SPAWN_FACING;
       b.behaviour = 'idle';
-      b.targetId = '';
+      setTarget(w, b, undefined, 'wave_reset');
       clearAttack(b);
       targetSince = 0;
       cycleIdx = 0;
