@@ -8,7 +8,12 @@ import { Harness } from '../src/sim/harness.js';
 import { createDirectorSystem } from '../src/ai/director.js';
 import { createDebriefSystem } from '../src/ai/debrief.js';
 
-const flush = () => new Promise<void>((r) => setTimeout(r, 30));
+/** Waits for an out-of-band HTTP round trip instead of guessing a fixed delay. */
+async function until(what: string, cond: () => boolean, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!cond() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+  assert.ok(cond(), `timed out waiting for ${what}`);
+}
 
 test('no env: director never speaks, state untouched; ending broadcasts a local debrief', () => {
   delete process.env.DIRECTOR_URL;
@@ -64,11 +69,14 @@ test('with a mock DIRECTOR_URL: a decision is applied on a later tick and clampe
     h.seconds(7.9);
     assert.equal(calls, 0, 'first call is at 8s');
     h.seconds(0.2);
-    await flush();
-    assert.equal(calls, 1);
+    await until('the director request', () => calls === 1);
     assert.equal(h.messages('director').length, 0, 'nothing applied until the next tick');
 
-    h.tick();
+    // The answer lands between ticks, so tick until the system picks it up.
+    await until('the decision to be applied', () => {
+      h.tick();
+      return h.messages('director').length > 0;
+    });
     const msgs = h.messages('director');
     assert.equal(msgs.length, 1);
     assert.equal(msgs[0].source, 'llm');
@@ -83,8 +91,7 @@ test('with a mock DIRECTOR_URL: a decision is applied on a later tick and clampe
     assert.equal(h.events('director_decision').length, 1);
 
     h.seconds(DIRECTOR.INTERVAL_MS / 1000 + 0.1);
-    await flush();
-    assert.equal(calls, 2, 'repeats every INTERVAL_MS');
+    await until('the second director request', () => calls === 2);
   } finally {
     delete process.env.DIRECTOR_URL;
     await new Promise<void>((r) => server.close(() => r()));
