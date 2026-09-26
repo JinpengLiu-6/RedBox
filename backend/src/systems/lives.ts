@@ -10,6 +10,7 @@
  *  - one shared revive pickup per wave; claiming it needs a hero out of lives
  *    with `revivesLeft > 0`, otherwise the pickup is left alone;
  *  - a revived hero comes back with exactly 1 life and one fewer revive;
+ *  - the base zone is the only place a hero heals (BASE_REGEN_PCT_PER_SEC);
  *  - Defeat only when nobody is alive AND nobody can still respawn.
  */
 
@@ -26,6 +27,19 @@ const CRATE_RESOLUTIONS = new Set<MatchEventType>([
 
 /** Respawn/revive scatter around the base centre, so heroes do not stack. */
 const BASE_SCATTER_PX = 50;
+
+/**
+ * TUNING (candidate for PLAYER.BASE_REGEN_PCT_PER_SEC): the only healing in the
+ * game. An alive hero inside the base zone recovers this fraction of max HP per
+ * second: 25% -> 50% in ~3 s, empty -> full in ~12.5 s. Without it a hurt hero
+ * stays hurt until the wave ends or it dies (spending a life).
+ */
+export const BASE_REGEN_PCT_PER_SEC = 0.08;
+/**
+ * Regen is paid in pulses, not per tick: heal() rounds and emits a 'heal' fx on
+ * every call, so per-tick healing would be 20 fx/s per hero and lose fractions.
+ */
+export const BASE_REGEN_PULSE_MS = 500;
 
 function basePoint(w: World): Vec2 {
   return w.nearestWalkable({
@@ -70,6 +84,14 @@ function revivable(w: World): Player | undefined {
 export function createLivesSystem(): System {
   /** Pickup spawned this wave, if any. */
   let pickupId = '';
+  /** Fractional HP each hero in the base has earned since its last pulse. */
+  const regenOwed = new Map<string, number>();
+  let nextRegenPulseAtMs = 0;
+
+  function resetRegen(w: World) {
+    regenOwed.clear();
+    nextRegenPulseAtMs = w.now + BASE_REGEN_PULSE_MS;
+  }
 
   function spawnPickup(w: World) {
     pickupId = '';
@@ -121,6 +143,30 @@ export function createLivesSystem(): System {
     }
   }
 
+  /**
+   * Alive heroes inside the base zone heal. HP accrues every tick and is paid out
+   * in whole points once per pulse; leaving the zone, dying or topping up
+   * forfeits the unpaid fraction. Runs after deaths so a hero at 0 hp is never
+   * pulled back up.
+   */
+  function regenerateAtBase(w: World) {
+    const pulse = w.now >= nextRegenPulseAtMs;
+    if (pulse) nextRegenPulseAtMs = w.now + BASE_REGEN_PULSE_MS;
+    for (const [id, p] of w.state.players) {
+      if (!p.alive || p.hp >= p.maxHp || w.distance(p, MAP.BASE) > MAP.BASE.radius) {
+        regenOwed.delete(id);
+        continue;
+      }
+      let owed = (regenOwed.get(id) ?? 0) + p.maxHp * BASE_REGEN_PCT_PER_SEC * w.dt;
+      if (pulse && owed >= 1) {
+        const paid = Math.floor(owed);
+        w.heal(id, paid);
+        owed -= paid;
+      }
+      regenOwed.set(id, owed);
+    }
+  }
+
   function resolveRevives(w: World) {
     const handled = spentOnCrate(w);
     for (const cmd of w.commands('interact')) {
@@ -149,16 +195,19 @@ export function createLivesSystem(): System {
 
   return {
     id: 'lives',
-    init() {
+    init(w) {
       pickupId = '';
+      resetRegen(w);
     },
     onWaveStart(w) {
       spawnPickup(w);
+      resetRegen(w);
     },
     update(w) {
       resolveRevives(w);
       resolveDeaths(w);
       resolveRespawns(w);
+      regenerateAtBase(w);
       checkDefeat(w);
     },
   };
