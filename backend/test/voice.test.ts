@@ -2,7 +2,8 @@
  * Boss voice (Gradium TTS via Modal). Silent without env; each new LLM taunt is
  * voiced once within a per-match budget; stale audio is dropped; fresh audio and
  * the recap reach a real colyseus.js client as Uint8Array; failures are logged
- * without the token.
+ * without the token; redirects are never followed; oversized bodies are never
+ * buffered; the recap is not billed when nobody is left to hear it.
  */
 
 import { test } from 'node:test';
@@ -15,12 +16,14 @@ import {
   MatchPhase, Outcome, PROTOCOL_VERSION, ROOM_NAME, ServerMessage, type System,
 } from '@redbox/shared';
 import { Harness } from '../src/sim/harness.js';
-import { HeistRoom } from '../src/room.js';
+import { HeistRoom, resetForRestart } from '../src/room.js';
 import { realSystems } from '../src/systems/index.js';
 import { createDebriefSystem } from '../src/ai/debrief.js';
 import { createDirectorSystem } from '../src/ai/director.js';
 import { createVoiceSystem } from '../src/ai/voice.js';
-import { resetVoiceFailureLog } from '../src/ai/voiceClient.js';
+import {
+  MAX_AUDIO_BYTES, VOICE_TAUNT_TIMEOUT_MS, fetchVoice, resetVoiceFailureLog,
+} from '../src/ai/voiceClient.js';
 
 const TOKEN = 'test-voice-token-7f3a9c2e';
 const ENV_KEYS = ['VOICE_URL', 'VOICE_TOKEN', 'VOICE_MAX_LINES', 'VOICE_RECAP', 'DIRECTOR_URL', 'DEBRIEF_URL'] as const;
@@ -39,7 +42,7 @@ async function until(what: string, cond: () => boolean, timeoutMs = 5_000) {
 }
 
 interface VoiceCall { headers: http.IncomingHttpHeaders; body: { text: string; kind: string } }
-interface Reply { status: number; body: Buffer | string; contentType?: string }
+interface Reply { status: number; body: Buffer | string; contentType?: string; headers?: Record<string, string> }
 
 /** Local stand-in for the Modal voice endpoint. `hold` parks replies until release(text). */
 async function mockVoice() {
@@ -66,7 +69,7 @@ async function mockVoice() {
       calls.push(call);
       const send = () => {
         const r = m.respond(call);
-        res.writeHead(r.status, { 'content-type': r.contentType ?? 'audio/ogg' });
+        res.writeHead(r.status, { 'content-type': r.contentType ?? 'audio/ogg', ...r.headers });
         res.end(r.body);
       };
       if (m.hold) held.push({ text: call.body.text, send }); else send();
@@ -452,6 +455,186 @@ test('failures are logged (first, then every 10th) without the token, and nothin
     console.warn = warn;
   }
 }));
+
+/** Collects console.warn lines while `fn` runs. */
+async function captureWarns(fn: (warns: string[]) => Promise<void>): Promise<string[]> {
+  const warn = console.warn;
+  const warns: string[] = [];
+  console.warn = (...args: unknown[]) => { warns.push(args.map(String).join(' ')); };
+  try { await fn(warns); } finally { console.warn = warn; }
+  return warns;
+}
+
+async function listen(server: http.Server): Promise<string> {
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  return `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+}
+
+test('an error body echoing the token across the log cut never leaks any of it', () => withVoice(async (m) => {
+  // The logged detail is cut at 160 chars; put the token right across that cut.
+  const pads = Array.from({ length: 40 }, (_, i) => 125 + i);
+  const warns = await captureWarns(async () => {
+    for (const pad of pads) {
+      m.respond = () => ({ status: 401, body: `${'x'.repeat(pad)} header was ${TOKEN}`, contentType: 'text/plain' });
+      resetVoiceFailureLog();
+      assert.equal(await fetchVoice('taunt', 'hi', VOICE_TAUNT_TIMEOUT_MS), null);
+    }
+  });
+  assert.equal(warns.length, pads.length);
+  for (const w of warns) {
+    assert.match(w, /HTTP 401 x+/);
+    assert.ok(!w.includes(TOKEN.slice(0, 4)), `part of the token leaked into: ${w}`);
+  }
+}));
+
+test('a redirect is never followed, so the token and text never reach another host', async () => {
+  const stolen: Array<{ headers: http.IncomingHttpHeaders; body: string }> = [];
+  const thief = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      stolen.push({ headers: req.headers, body });
+      res.writeHead(200, { 'content-type': 'audio/ogg' });
+      res.end(oggFor('stolen'));
+    });
+  });
+  const thiefUrl = `${await listen(thief)}/steal`;
+  try {
+    await withVoice(async (m) => {
+      const statuses = [301, 302, 303, 307, 308];
+      const warns = await captureWarns(async () => {
+        for (const status of statuses) {
+          m.respond = () => ({ status, body: '', headers: { location: thiefUrl } });
+          resetVoiceFailureLog();
+          assert.equal(await fetchVoice('taunt', 'hello', VOICE_TAUNT_TIMEOUT_MS), null);
+        }
+        // Through the system too: nothing plays.
+        m.respond = () => ({ status: 307, body: '', headers: { location: thiefUrl } });
+        const h = match();
+        say(h, 'Follow me.');
+        await until('the voice request', () => m.calls.length === statuses.length + 1);
+        await settle();
+        assert.equal(voices(h).length, 0);
+      });
+      statuses.forEach((status, i) => assert.match(warns[i]!, new RegExp(`HTTP ${status} redirect not followed`)));
+    });
+    assert.deepEqual(stolen, [], 'the redirect target was contacted');
+  } finally {
+    thief.closeAllConnections();
+    await new Promise<void>((r) => thief.close(() => r()));
+  }
+});
+
+test('recap: never requested when nobody will hear it (restart or everyone left before the debrief resolved)', async () => {
+  // A slow LLM debrief whose replies are released by hand.
+  const pending: Array<() => void> = [];
+  const llm = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => pending.push(() => {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ summary: `The King kept his gold. ${'Gold. '.repeat(90)}`, highlights: [] }));
+    }));
+  });
+  const debriefUrl = `${await listen(llm)}/debrief`;
+  try {
+    await withVoice(async (m) => {
+      // Party pressed restart while the LLM was still writing the recap.
+      const r = match([createDebriefSystem()]);
+      r.world.endMatch(Outcome.Defeat);
+      await until('the debrief request', () => pending.length === 1);
+      resetForRestart(r.state);
+      assert.equal(r.state.phase, MatchPhase.Lobby);
+      pending.shift()!();
+      await until('the debrief text', () => r.messages(ServerMessage.Debrief).length === 1);
+
+      // Every player left the end screen (onLeave marks them disconnected bots).
+      const g = match([createDebriefSystem()]);
+      g.world.endMatch(Outcome.Timeout);
+      await until('the debrief request', () => pending.length === 1);
+      for (const p of g.state.players.values()) { p.connected = false; p.isBot = true; }
+      pending.shift()!();
+      await until('the debrief text', () => g.messages(ServerMessage.Debrief).length === 1);
+
+      await settle();
+      assert.equal(m.calls.length, 0, 'no billed recap call');
+      assert.equal(recaps(r).length + recaps(g).length, 0);
+
+      // Control: someone is still on the end screen, so it is spoken.
+      const k = match([createDebriefSystem()]);
+      k.world.endMatch(Outcome.Victory);
+      await until('the debrief request', () => pending.length === 1);
+      pending.shift()!();
+      await until('the recap', () => recaps(k).length === 1);
+      assert.equal(m.calls.length, 1);
+    }, { DEBRIEF_URL: debriefUrl });
+  } finally {
+    llm.closeAllConnections();
+    await new Promise<void>((r) => llm.close(() => r()));
+  }
+});
+
+/** 200 with an Ogg-looking body of `total` bytes, streamed with backpressure; counts what it managed to write. */
+async function bigAudio(total: number, declareLength: boolean) {
+  const stats = { written: 0, closed: false, sent: [] as Buffer[] };
+  const chunk = Buffer.alloc(64 * 1024, 7);
+  chunk.write('OggS', 0);
+  const server = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'audio/ogg', ...(declareLength ? { 'content-length': String(total) } : {}) });
+      res.on('close', () => { stats.closed = true; });
+      const pump = () => {
+        while (!stats.closed && stats.written < total) {
+          const c = chunk.subarray(0, Math.min(chunk.length, total - stats.written));
+          stats.written += c.length;
+          stats.sent.push(c);
+          if (!res.write(c)) { res.once('drain', pump); return; }
+        }
+        if (!stats.closed) res.end();
+      };
+      pump();
+    });
+  });
+  const url = await listen(server);
+  return {
+    url,
+    stats,
+    close: () => new Promise<void>((r) => { server.closeAllConnections(); server.close(() => r()); }),
+  };
+}
+
+test('oversized audio is refused without buffering it, whether its length is declared or streamed', async () => {
+  const MiB = 1024 * 1024;
+  for (const declareLength of [true, false]) {
+    const big = await bigAudio(64 * MiB, declareLength);
+    try {
+      const warns = await captureWarns(async () => {
+        resetVoiceFailureLog();
+        assert.equal(await fetchVoice('taunt', 'hi', VOICE_TAUNT_TIMEOUT_MS, { url: big.url, token: TOKEN }), null);
+      });
+      assert.equal(warns.length, 1);
+      assert.match(warns[0]!, /audio too large/);
+      await until('the connection to be dropped', () => big.stats.closed);
+      assert.ok(big.stats.written < 16 * MiB,
+        `read ${big.stats.written} bytes of a 64 MiB body (length ${declareLength ? 'declared' : 'streamed'})`);
+    } finally {
+      await big.close();
+    }
+  }
+
+  // Exactly at the cap, in many chunks: delivered intact.
+  for (const declareLength of [true, false]) {
+    const ok = await bigAudio(MAX_AUDIO_BYTES, declareLength);
+    try {
+      const audio = await fetchVoice('recap', 'hi', VOICE_TAUNT_TIMEOUT_MS, { url: ok.url, token: TOKEN });
+      assert.ok(audio, 'audio at the cap is accepted');
+      assert.equal(audio.length, MAX_AUDIO_BYTES);
+      assert.ok(Buffer.from(audio).equals(Buffer.concat(ok.stats.sent)));
+    } finally {
+      await ok.close();
+    }
+  }
+});
 
 test('a real colyseus.js client receives BossVoice and DebriefVoice as Uint8Array', async () => {
   const rooms: HeistRoom[] = [];
