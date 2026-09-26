@@ -9,6 +9,7 @@ import {
   OUTCOME_LABEL, ServerMessage, classIdOf,
   type DebriefPayload, type DebriefRequest, type System, type World,
 } from '@redbox/shared';
+import { speakRecap } from './voiceClient.js';
 
 const DEBRIEF_TIMEOUT_MS = 25_000;
 const MAX_HIGHLIGHTS = 6;
@@ -23,7 +24,12 @@ export function createDebriefSystem(): System {
     onEnd(w) {
       const req = buildRequest(w);
       const url = process.env.DEBRIEF_URL;
-      if (!url) { w.broadcast(ServerMessage.Debrief, localDebrief(req)); return; }
+      if (!url) {
+        const payload = localDebrief(req);
+        w.broadcast(ServerMessage.Debrief, payload);
+        speakRecap(w, payload.summary);
+        return;
+      }
 
       fetch(url, {
         method: 'POST',
@@ -34,7 +40,10 @@ export function createDebriefSystem(): System {
         .then((res) => (res.ok ? res.json() : null))
         .then((body: unknown) => validatePayload(body) ?? localDebrief(req))
         .catch(() => localDebrief(req))
-        .then((payload) => w.broadcast(ServerMessage.Debrief, payload));
+        .then((payload) => {
+          w.broadcast(ServerMessage.Debrief, payload);
+          speakRecap(w, payload.summary);
+        });
     },
   };
 }

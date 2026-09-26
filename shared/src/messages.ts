@@ -54,6 +54,14 @@ export const ServerMessage = {
   Event: 'event',
   Director: 'director',
   Debrief: 'debrief',
+  /**
+   * Binary (Ogg Opus bytes): the latest LLM taunt spoken by the Goblin King.
+   * Optional and best-effort: the taunt text is always shown first via
+   * `state.director` / `Director`; audio may arrive later or never.
+   */
+  BossVoice: 'boss_voice',
+  /** Binary (Ogg Opus bytes): the end-of-match `Debrief.summary`, spoken. Same best-effort rules. */
+  DebriefVoice: 'debrief_voice',
   Error: 'error',
 } as const;
 export type ServerMessageType = (typeof ServerMessage)[keyof typeof ServerMessage];
@@ -96,5 +104,8 @@ export interface ServerMessageMap {
   [ServerMessage.Event]: EventPayload;
   [ServerMessage.Director]: DirectorPayload;
   [ServerMessage.Debrief]: DebriefPayload;
+  /** Sent as a Colyseus binary message; colyseus.js hands `onMessage` a Uint8Array. */
+  [ServerMessage.BossVoice]: Uint8Array;
+  [ServerMessage.DebriefVoice]: Uint8Array;
   [ServerMessage.Error]: ErrorPayload;
 }
