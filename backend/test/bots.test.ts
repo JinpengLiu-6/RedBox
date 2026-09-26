@@ -224,6 +224,39 @@ test('humans and dead bots are left alone; goals re-decide within REACTION_MS', 
   assert.equal(h.world.intentFor(dead.id), undefined);
 });
 
+test('a bot oscillating between two tiles still counts as stuck and gets through', () => {
+  // The path field flips between two tiles here, so the bot ping-pongs without
+  // ever getting closer: progress has to be measured against the goal.
+  const { h } = make();
+  const start = { x: 432, y: 850 };
+  const bot = h.addPlayer('warrior', { id: 'bot_osc', ...start, bot: true });
+  h.start();
+  h.place(bot.id, start.x, start.y);
+  for (const id of [...h.state.boxes.keys()]) h.state.boxes.delete(id);
+  const crate = addBox(h, 'behind-corner', { x: 624, y: 816 });
+  h.seconds(10);
+  assert.ok(h.world.distance(bot, crate) < 60, `reached the crate: ${h.world.distance(bot, crate).toFixed(0)}px`);
+});
+
+test('a retreating bot goes back to work once nothing is chasing it (heroes never regen)', () => {
+  const { h } = make();
+  const pos = tileCentre(40, 20);
+  const bot = h.addPlayer('troll', { ...pos, bot: true });
+  h.start();
+  for (const id of [...h.state.boxes.keys()]) h.state.boxes.delete(id);
+  bot.hp = Math.floor(bot.maxHp * 0.2);
+  const gob = h.world.spawnCreep({ x: pos.x + 30, y: pos.y });
+  h.tick(10);
+  const homeward = h.world.distance(bot, BASE);
+  assert.ok(homeward < h.world.distance(pos, BASE), 'first it runs home');
+
+  h.state.creeps.delete(gob.id);
+  const crate = addBox(h, 'work', tileCentre(36, 20));
+  const d0 = h.world.distance(bot, crate);
+  h.seconds(2);
+  assert.ok(h.world.distance(bot, crate) < d0 - 50, 'back to crate duty while still hurt');
+});
+
 test('a bot wedged on a wall corner sidesteps instead of pushing into it forever', () => {
   // (1392,976) sits in a corner where the path direction is blocked for a full body.
   const { h } = make();
