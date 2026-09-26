@@ -12,6 +12,7 @@ import { createBossSystem } from '../ai/boss.js';
 import { createBotsSystem } from '../ai/bots.js';
 import { createDebriefSystem } from '../ai/debrief.js';
 import { createDirectorSystem } from '../ai/director.js';
+import { createVoiceSystem } from '../ai/voice.js';
 import { createAbilitySystem } from './abilities.js';
 import { createBoxesSystem } from './boxes.js';
 import { createCombatSystem } from './combat.js';
@@ -32,6 +33,8 @@ export function realSystems(): System[] {
     createTowersSystem(),
     createLivesSystem(),
     createDirectorSystem(),
+    // Right after the director: speaks the taunt it just wrote (optional, off without VOICE_URL/VOICE_TOKEN).
+    createVoiceSystem(),
     createDebriefSystem(),
   ];
 }

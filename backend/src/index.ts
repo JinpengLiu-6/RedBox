@@ -23,7 +23,11 @@ const httpServer = createServer((req, res) => {
       // Which commit is actually running (Railway sets this), and whether the
       // optional AI layer is configured - booleans only, never the URLs.
       commit: (process.env.RAILWAY_GIT_COMMIT_SHA ?? 'local').slice(0, 7),
-      ai: { director: Boolean(process.env.DIRECTOR_URL), debrief: Boolean(process.env.DEBRIEF_URL) },
+      ai: {
+        director: Boolean(process.env.DIRECTOR_URL),
+        debrief: Boolean(process.env.DEBRIEF_URL),
+        voice: Boolean(process.env.VOICE_URL && process.env.VOICE_TOKEN),
+      },
     }));
     return;
   }
@@ -39,5 +43,6 @@ gameServer.define(ROOM_NAME, HeistRoom);
 
 gameServer.listen(port).then(() => {
   console.log(`[redbox] ${STUB ? 'STUB' : 'live'} server listening on :${port} (room "${ROOM_NAME}", protocol v${PROTOCOL_VERSION}, ` +
-    `commit ${(process.env.RAILWAY_GIT_COMMIT_SHA ?? 'local').slice(0, 7)}, AI director ${process.env.DIRECTOR_URL ? 'on' : 'off'})`);
+    `commit ${(process.env.RAILWAY_GIT_COMMIT_SHA ?? 'local').slice(0, 7)}, AI director ${process.env.DIRECTOR_URL ? 'on' : 'off'}, ` +
+    `voice ${process.env.VOICE_URL && process.env.VOICE_TOKEN ? 'on' : 'off'})`);
 });
