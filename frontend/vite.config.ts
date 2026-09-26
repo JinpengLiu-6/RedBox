@@ -6,7 +6,19 @@ import { resolve } from 'path';
 export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const gamePort = process.env.GAME_PORT ?? '2577';
-  
+  const server = env.VITE_GAME_SERVER ?? process.env.VITE_GAME_SERVER;
+
+  if (command === 'build' && process.env.ALLOW_OFFLINE_BUILD !== '1' && (!server || !server.startsWith('wss://'))) {
+    throw new Error(
+      '\n[itch.io / Production Build Guard]\n' +
+      'VITE_GAME_SERVER must be set to your online backend WebSocket URL (wss://...) before building for itch.io / production.\n' +
+      'Example:\n' +
+      '  VITE_GAME_SERVER=wss://<your-backend-domain>.up.railway.app npm run package:itch\n\n' +
+      'If you intentionally want to test a build without a live server URL, pass:\n' +
+      '  ALLOW_OFFLINE_BUILD=1 npm run build:client\n'
+    );
+  }
+
   return {
     base: './',
     plugins: [react(), tailwindcss()],
