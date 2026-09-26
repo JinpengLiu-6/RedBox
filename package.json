@@ -1,0 +1,33 @@
+{
+  "name": "redbox",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "shared",
+    "backend",
+    "frontend",
+    "e2e"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "validate": "tsx shared/scripts/validate.ts",
+    "check": "npm run typecheck && npm run validate",
+    "stub": "STUB=1 tsx backend/src/index.ts",
+    "server": "tsx watch backend/src/index.ts",
+    "client": "npm run dev -w @redbox/frontend",
+    "seam": "tsx e2e/seam-check.ts",
+    "test": "tsx --test backend/test/*.test.ts",
+    "start": "node --import tsx backend/src/index.ts",
+    "build:client": "npm run build -w @redbox/frontend",
+    "package:itch": "npm run build:client && rm -f redbox-itch.zip && cd frontend/dist && zip -qr ../../redbox-itch.zip . && cd ../.. && echo \"redbox-itch.zip ready (index.html at zip root)\"",
+    "check:deploy": "tsx e2e/deploy-check.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "tsx": "^4.23.15",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

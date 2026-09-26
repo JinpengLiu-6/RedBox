@@ -1,0 +1,8 @@
+# Local tooling for ai/modal (deploy CLI + offline tests). Install into a venv
+# OUTSIDE the repo, e.g. /tmp/redbox-modal-venv. The container image pins its
+# own runtime deps in app.py.
+modal>=1.5,<1.6
+anthropic>=1.8,<2
+fastapi
+pydantic
+pytest
