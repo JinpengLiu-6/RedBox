@@ -1,0 +1,4671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crate Heist - 10 Playable Heroes & Multi-Biome Arena</title>
+  <style>
+    /* ==========================================================================
+       1. CORE DESIGN TOKENS & SYSTEM FOUNDATION
+       ========================================================================== */
+    :root {
+      /* Theme Foundations */
+      --bg-deep: #060911;
+      --bg-surface: #0c1424;
+      --bg-surface-elevated: #131f37;
+      --bg-surface-hover: #1a2a4a;
+      --bg-glass: rgba(12, 20, 36, 0.88);
+      --bg-glass-heavy: rgba(8, 14, 26, 0.96);
+      
+      /* Borders & Lines */
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --border-default: rgba(255, 255, 255, 0.14);
+      --border-accent: rgba(56, 189, 248, 0.45);
+      --border-gold: rgba(245, 158, 11, 0.5);
+      
+      /* Vibrant Accents */
+      --accent-cyan: #38bdf8;
+      --accent-gold: #f59e0b;
+      --accent-emerald: #10b981;
+      --accent-crimson: #ef4444;
+      --accent-purple: #a855f7;
+      --accent-pink: #ec4899;
+      
+      /* Typography */
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --text-gold: #fbbf24;
+      
+      /* Shadows & Elevation */
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+      --shadow-md: 0 8px 24px -4px rgba(0, 0, 0, 0.6);
+      --shadow-lg: 0 16px 48px -8px rgba(0, 0, 0, 0.85);
+      --glow-cyan: 0 0 24px rgba(56, 189, 248, 0.4);
+      --glow-gold: 0 0 24px rgba(245, 158, 11, 0.4);
+      
+      /* Motion Curves */
+      --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+      --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-out: cubic-bezier(0, 0, 0.2, 1);
+
+      /* Gameplay Canvas Fallback Colors */
+      --color-floor-a: #f6ecdc;
+      --color-floor-b: #ecdfc8;
+      --color-wall-top: #b27643;
+      --color-wall-side: #784920;
+      --color-wall-shadow: rgba(45, 25, 10, 0.25);
+      --color-crate-gold: #f59e0b;
+      --color-speed-teal: #14b8a6;
+      --color-grass-green: #48bb78;
+      --color-boss-danger: #ef4444;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    body {
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    /* Top Global Header */
+    header {
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      padding: 8px 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 30;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand h1 {
+      font-size: 15px;
+      font-weight: 800;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      letter-spacing: 0.5px;
+    }
+
+    .badge {
+      background: linear-gradient(135deg, #2563eb, #38bdf8);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 2px 8px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.35);
+    }
+
+    /* Map Tabs */
+    .map-tabs {
+      display: flex;
+      background: var(--bg-deep);
+      padding: 3px;
+      border-radius: 9px;
+      gap: 4px;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .map-tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 5px 10px;
+      border-radius: 7px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s var(--ease-smooth);
+    }
+
+    .map-tab-btn:hover {
+      color: #fff;
+      background: rgba(255,255,255,0.06);
+    }
+
+    .map-tab-btn.active {
+      background: #2563eb;
+      color: #fff;
+      box-shadow: 0 0 12px rgba(37, 99, 235, 0.5);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-header {
+      background: var(--bg-surface-elevated);
+      color: var(--text-primary);
+      border: 1px solid var(--border-default);
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s var(--ease-smooth);
+    }
+
+    .btn-header:hover {
+      background: var(--bg-surface-hover);
+      border-color: var(--accent-cyan);
+      transform: translateY(-1px);
+    }
+
+    .btn-header:active {
+      transform: scale(0.97);
+    }
+
+    .btn-header.primary {
+      background: linear-gradient(135deg, #1d4ed8, #2563eb);
+      border-color: #3b82f6;
+      color: #fff;
+      box-shadow: 0 2px 10px rgba(37, 99, 235, 0.4);
+    }
+
+    .btn-header.primary:hover {
+      background: linear-gradient(135deg, #2563eb, #38bdf8);
+      box-shadow: 0 4px 14px rgba(56, 189, 248, 0.5);
+    }
+
+    .btn-header.gold {
+      background: linear-gradient(135deg, #b45309, #f59e0b);
+      border-color: #fbbf24;
+      color: #fff;
+      box-shadow: 0 2px 10px rgba(245, 158, 11, 0.4);
+    }
+
+    .btn-header.gold:hover {
+      background: linear-gradient(135deg, #f59e0b, #fbbf24);
+      box-shadow: 0 4px 16px rgba(251, 191, 36, 0.5);
+    }
+
+    /* Main Container */
+    main {
+      flex: 1;
+      position: relative;
+      display: flex;
+      overflow: hidden;
+    }
+
+    .canvas-container {
+      flex: 1;
+      position: relative;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    canvas {
+      image-rendering: pixelated;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.9);
+      background: #000;
+      cursor: crosshair;
+    }
+
+    /* ==========================================================================
+       2. PREMIUM HERO SELECT SCREEN (FULL SCREEN DRAFT)
+       ========================================================================== */
+    .hero-select-screen {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: radial-gradient(circle at 50% 20%, #0d172e 0%, #060912 70%);
+      z-index: 60;
+      display: flex;
+      flex-direction: column;
+      padding: 16px 24px;
+      overflow-y: auto;
+      transition: opacity 0.35s var(--ease-smooth), transform 0.35s var(--ease-smooth);
+    }
+
+    .hero-select-screen.hidden {
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(0.98);
+    }
+
+    /* Draft Top Bar */
+    .draft-top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .draft-phase-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .phase-badge {
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid var(--accent-cyan);
+      color: var(--accent-cyan);
+      font-size: 11px;
+      font-weight: 800;
+      padding: 4px 10px;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      letter-spacing: 0.5px;
+    }
+
+    .phase-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent-cyan);
+      box-shadow: 0 0 8px var(--accent-cyan);
+      animation: pulseDot 1.4s infinite;
+    }
+
+    @keyframes pulseDot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .draft-title-text h2 {
+      font-size: 18px;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: 0.5px;
+    }
+
+    .draft-title-text p {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 1px;
+    }
+
+    /* Draft Countdown Timer */
+    .draft-timer-box {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      padding: 6px 18px;
+      border-radius: 12px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .timer-label {
+      font-size: 10px;
+      font-weight: 800;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    .timer-display {
+      font-size: 24px;
+      font-weight: 900;
+      color: var(--accent-gold);
+      font-variant-numeric: tabular-nums;
+      text-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
+    }
+
+    .draft-top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* ==========================================================================
+       3. TEAM SELECTION BAR (5 PLAYERS SQUAD)
+       ========================================================================== */
+    .team-squad-bar {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .team-slot {
+      background: var(--bg-surface);
+      border: 1.5px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.25s var(--ease-spring);
+    }
+
+    .team-slot.is-you {
+      border-color: var(--accent-cyan);
+      background: linear-gradient(135deg, rgba(14, 165, 233, 0.12), rgba(12, 20, 36, 0.95));
+      box-shadow: 0 0 16px rgba(56, 189, 248, 0.25);
+    }
+
+    .team-slot.locked {
+      border-color: rgba(16, 185, 129, 0.6);
+    }
+
+    .team-slot-avatar {
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      background: #141c2c;
+      border: 1.5px solid var(--border-default);
+      overflow: hidden;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .team-slot-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transition: transform 0.3s var(--ease-spring);
+    }
+
+    .team-slot-info {
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .team-slot-player {
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .player-tag-you {
+      background: var(--accent-cyan);
+      color: #020617;
+      font-size: 8px;
+      font-weight: 900;
+      padding: 1px 4px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+
+    .team-slot-hero {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent-gold);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 1px;
+    }
+
+    .team-slot-status {
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .team-slot-status.ready {
+      color: var(--accent-emerald);
+    }
+
+    /* Slot Confirmation Pulse Animation */
+    .slot-pop-animation {
+      animation: slotPop 0.35s var(--ease-spring);
+    }
+
+    @keyframes slotPop {
+      0% { transform: scale(0.92); }
+      50% { transform: scale(1.06); filter: brightness(1.3); }
+      100% { transform: scale(1); filter: brightness(1); }
+    }
+
+    /* ==========================================================================
+       4. HERO DRAFT BODY: ROSTER (LEFT) + LARGE PREVIEW (RIGHT)
+       ========================================================================== */
+    .hero-draft-body {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 390px;
+      gap: 16px;
+      min-height: 0;
+    }
+
+    /* Hero Roster Grid */
+    .hero-roster-pane {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .roster-header-label {
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .hero-grid-10 {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+    }
+
+    /* ==========================================================================
+       5. HERO CARD COMPONENT & 5 INTERACTIVE STATES
+       ========================================================================== */
+    .hero-card {
+      background: var(--bg-surface);
+      border: 1.5px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 10px 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+      cursor: pointer;
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+      transition: transform 0.22s var(--ease-spring), border-color 0.2s var(--ease-smooth), box-shadow 0.2s var(--ease-smooth);
+    }
+
+    /* Ambient card background glow */
+    .card-backdrop-glow {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: radial-gradient(circle at 50% 30%, var(--hero-glow, rgba(56, 189, 248, 0.15)) 0%, transparent 70%);
+      opacity: 0.6;
+      pointer-events: none;
+      transition: opacity 0.25s var(--ease-smooth);
+    }
+
+    /* Holographic light sweep line on hover */
+    .hero-card::after {
+      content: "";
+      position: absolute;
+      top: 0; left: -100%; width: 60%; height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+      transform: skewX(-20deg);
+      pointer-events: none;
+      transition: none;
+    }
+
+    /* Character Artwork Wrap with independent parallax depth */
+    .card-art-wrap {
+      width: 70px;
+      height: 70px;
+      margin-bottom: 6px;
+      position: relative;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .card-art-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.6));
+      transition: transform 0.25s var(--ease-spring), filter 0.25s var(--ease-smooth);
+    }
+
+    .hero-card-meta {
+      width: 100%;
+      text-align: center;
+      position: relative;
+      z-index: 2;
+    }
+
+    .hero-card-number {
+      font-size: 9px;
+      font-weight: 800;
+      color: var(--hero-accent, var(--accent-cyan));
+      letter-spacing: 0.5px;
+    }
+
+    .hero-card-name {
+      font-size: 13px;
+      font-weight: 800;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 1px;
+    }
+
+    .hero-card-role {
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      margin-top: 2px;
+      margin-bottom: 6px;
+    }
+
+    .hero-card-icons {
+      display: flex;
+      justify-content: center;
+      gap: 4px;
+      font-size: 11px;
+      opacity: 0.85;
+      padding-top: 4px;
+      border-top: 1px solid var(--border-subtle);
+      width: 100%;
+    }
+
+    /* STATE 2 — HOVER */
+    .hero-card:hover:not(.is-taken) {
+      transform: translateY(-5px);
+      border-color: var(--hero-accent, var(--accent-cyan));
+      box-shadow: 0 12px 28px -4px rgba(0, 0, 0, 0.7), 0 0 18px var(--hero-glow, rgba(56, 189, 248, 0.35));
+    }
+
+    .hero-card:hover:not(.is-taken) .card-backdrop-glow {
+      opacity: 1;
+    }
+
+    .hero-card:hover:not(.is-taken) .card-art-wrap img {
+      transform: translateY(-6px) scale(1.08);
+      filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.8));
+    }
+
+    .hero-card:hover:not(.is-taken)::after {
+      left: 150%;
+      transition: left 0.65s ease-in-out;
+    }
+
+    /* STATE 3 — SELECTED */
+    .hero-card.is-selected {
+      border-color: var(--accent-cyan);
+      background: linear-gradient(180deg, rgba(56, 189, 248, 0.12) 0%, var(--bg-surface) 100%);
+      box-shadow: 0 0 22px var(--hero-glow, rgba(56, 189, 248, 0.45)), 0 8px 24px rgba(0,0,0,0.6);
+      transform: scale(1.02);
+    }
+
+    .hero-card.is-selected::before {
+      content: "✓ ACTIVE";
+      position: absolute;
+      top: 5px; right: 5px;
+      background: var(--accent-emerald);
+      color: #022c22;
+      font-size: 8px;
+      font-weight: 900;
+      padding: 1px 5px;
+      border-radius: 4px;
+      letter-spacing: 0.4px;
+      z-index: 5;
+    }
+
+    /* Selection Impact Pulse */
+    .hero-card.is-selected .card-art-wrap img {
+      animation: heroSelectImpact 0.35s var(--ease-spring);
+    }
+
+    @keyframes heroSelectImpact {
+      0% { transform: scale(0.9); }
+      50% { transform: scale(1.15) translateY(-4px); }
+      100% { transform: scale(1.04); }
+    }
+
+    /* STATE 4 — SELECTED BY ANOTHER PLAYER / TAKEN */
+    .hero-card.is-taken {
+      filter: grayscale(0.85) contrast(0.75);
+      opacity: 0.52;
+      cursor: not-allowed;
+      border-color: rgba(255, 255, 255, 0.05);
+      background: #090e18;
+    }
+
+    .hero-card.is-taken .card-taken-overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: repeating-linear-gradient(
+        45deg,
+        rgba(0, 0, 0, 0.4),
+        rgba(0, 0, 0, 0.4) 6px,
+        rgba(0, 0, 0, 0.6) 6px,
+        rgba(0, 0, 0, 0.6) 12px
+      );
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+      backdrop-filter: blur(1px);
+    }
+
+    .taken-badge {
+      background: rgba(239, 68, 68, 0.9);
+      color: #fff;
+      font-size: 9px;
+      font-weight: 900;
+      padding: 3px 7px;
+      border-radius: 5px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+    }
+
+    .taken-player-label {
+      font-size: 9px;
+      font-weight: 800;
+      color: #fca5a5;
+      margin-top: 3px;
+    }
+
+    /* ==========================================================================
+       6. LARGE HERO PREVIEW PANEL (RIGHT SHOWCASE)
+       ========================================================================== */
+    .hero-preview-panel {
+      background: var(--bg-surface);
+      border: 1.5px solid var(--border-default);
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      overflow: hidden;
+      box-shadow: var(--shadow-md);
+    }
+
+    .preview-ambient-glow {
+      position: absolute;
+      top: -30px; right: -30px;
+      width: 260px; height: 260px;
+      background: radial-gradient(circle, var(--hero-glow, rgba(56, 189, 248, 0.25)) 0%, transparent 70%);
+      pointer-events: none;
+      filter: blur(30px);
+      z-index: 0;
+    }
+
+    .preview-top-section {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    /* Hero Showcase with subtle breathing idle */
+    .preview-hero-art-box {
+      width: 100px;
+      height: 120px;
+      border-radius: 14px;
+      background: radial-gradient(circle at center, rgba(255,255,255,0.08) 0%, rgba(10,16,28,0.9) 75%);
+      border: 2px solid var(--hero-accent, var(--accent-cyan));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+      flex-shrink: 0;
+      box-shadow: var(--shadow-md);
+    }
+
+    .preview-hero-art-box img {
+      max-width: 90%;
+      max-height: 92%;
+      object-fit: contain;
+      filter: drop-shadow(0 8px 14px rgba(0,0,0,0.7));
+      animation: heroIdleBreathing 3.6s ease-in-out infinite;
+    }
+
+    @keyframes heroIdleBreathing {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-5px); }
+    }
+
+    .preview-hero-identity {
+      flex: 1;
+    }
+
+    .preview-hero-tag {
+      font-size: 10px;
+      font-weight: 800;
+      color: var(--hero-accent, var(--accent-cyan));
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+    }
+
+    .preview-hero-name {
+      font-size: 18px;
+      font-weight: 900;
+      color: #fff;
+      letter-spacing: 0.5px;
+      margin-top: 1px;
+    }
+
+    .preview-hero-fantasy {
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.35;
+      margin-top: 4px;
+    }
+
+    /* Tactical Stat Bars */
+    .preview-stats-grid {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 12px;
+      background: rgba(8, 14, 26, 0.6);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      padding: 8px 12px;
+      margin-bottom: 12px;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .stat-row-label {
+      color: var(--text-secondary);
+    }
+
+    .stat-row-val {
+      color: #fff;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Ability Cards (Tray of 4) */
+    .preview-abilities-tray {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+
+    .ability-card {
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: default;
+      transition: all 0.2s var(--ease-smooth);
+    }
+
+    .ability-card:hover {
+      background: var(--bg-surface-hover);
+      border-color: var(--accent-cyan);
+      transform: translateX(3px);
+    }
+
+    .ability-card-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .ability-card-body {
+      flex: 1;
+    }
+
+    .ability-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .ability-card-title {
+      font-size: 11px;
+      font-weight: 800;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .ability-key-pill {
+      background: var(--bg-deep);
+      border: 1px solid var(--border-default);
+      color: var(--accent-cyan);
+      font-size: 9px;
+      font-weight: 800;
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+
+    .ability-card-desc {
+      font-size: 10px;
+      color: var(--text-secondary);
+      line-height: 1.3;
+      margin-top: 2px;
+    }
+
+    /* Large Action Button */
+    .btn-lock-hero {
+      position: relative;
+      z-index: 2;
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: #fff;
+      border: none;
+      padding: 13px 20px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 900;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      letter-spacing: 0.5px;
+      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45);
+      transition: all 0.2s var(--ease-spring);
+    }
+
+    .btn-lock-hero:hover:not(:disabled) {
+      background: linear-gradient(135deg, #34d399, #10b981);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(16, 185, 129, 0.6);
+    }
+
+    .btn-lock-hero:active:not(:disabled) {
+      transform: scale(0.97);
+    }
+
+    .btn-lock-hero:disabled {
+      background: #1e293b;
+      color: #64748b;
+      border: 1px solid var(--border-subtle);
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
+    }
+
+    /* ==========================================================================
+       7. TACTICAL MAP RANDOMIZER & REVEAL SCREEN
+       ========================================================================== */
+    .map-randomizer-screen {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: radial-gradient(circle at 50% 30%, #0c1426 0%, #03060d 80%);
+      z-index: 70;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 30px;
+      transition: opacity 0.4s var(--ease-smooth), transform 0.4s var(--ease-smooth);
+    }
+
+    .map-randomizer-screen.hidden {
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(1.04);
+    }
+
+    /* Ambient Biome Flash on Reveal */
+    .randomizer-bloom-overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: transparent;
+      pointer-events: none;
+      transition: background 0.6s ease;
+      z-index: 1;
+    }
+
+    .randomizer-header {
+      position: relative;
+      z-index: 3;
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    .randomizer-title {
+      font-size: 22px;
+      font-weight: 900;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      letter-spacing: 1px;
+    }
+
+    .randomizer-sub {
+      font-size: 13px;
+      color: var(--accent-cyan);
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      margin-top: 4px;
+      text-transform: uppercase;
+    }
+
+    /* 5 Map Cards Array */
+    .map-cards-array {
+      position: relative;
+      z-index: 3;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 14px;
+      width: 100%;
+      max-width: 980px;
+    }
+
+    /* Scanner Laser Beam */
+    .scanner-laser-line {
+      position: absolute;
+      top: -6px; bottom: -6px;
+      width: 4px;
+      background: linear-gradient(180deg, transparent, var(--accent-cyan), #fff, var(--accent-cyan), transparent);
+      box-shadow: 0 0 20px var(--accent-cyan), 0 0 40px #fff;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 5;
+      transition: left 0.08s linear, opacity 0.2s;
+    }
+
+    .scanner-laser-line.active {
+      opacity: 1;
+    }
+
+    .map-random-card {
+      background: var(--bg-surface);
+      border: 2px solid var(--border-default);
+      border-radius: 14px;
+      overflow: hidden;
+      position: relative;
+      box-shadow: var(--shadow-md);
+      transition: all 0.22s var(--ease-spring);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .map-random-card.scanning {
+      border-color: var(--map-accent, var(--accent-cyan));
+      box-shadow: 0 0 24px var(--map-glow, rgba(56, 189, 248, 0.5));
+      transform: translateY(-6px) scale(1.04);
+    }
+
+    .map-random-card.locked-winner {
+      border-color: #fbbf24;
+      box-shadow: 0 0 35px rgba(251, 191, 36, 0.8), 0 16px 40px rgba(0,0,0,0.8);
+      transform: translateY(-10px) scale(1.08);
+      z-index: 8;
+      animation: winnerPulse 1.2s infinite alternate;
+    }
+
+    @keyframes winnerPulse {
+      0% { box-shadow: 0 0 25px rgba(251, 191, 36, 0.6); }
+      100% { box-shadow: 0 0 45px rgba(251, 191, 36, 0.95); }
+    }
+
+    .map-card-thumb {
+      width: 100%;
+      height: 105px;
+      background: #000;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .map-card-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transition: transform 0.4s ease;
+    }
+
+    .map-random-card.scanning .map-card-thumb img,
+    .map-random-card.locked-winner .map-card-thumb img {
+      transform: scale(1.08);
+    }
+
+    .map-card-meta {
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      background: var(--bg-surface);
+      flex: 1;
+    }
+
+    .map-card-badge {
+      font-size: 9px;
+      font-weight: 800;
+      color: var(--map-accent, var(--accent-cyan));
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .map-card-name {
+      font-size: 14px;
+      font-weight: 900;
+      color: #fff;
+      letter-spacing: 0.5px;
+    }
+
+    .map-card-boss-tag {
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .map-card-event-pill {
+      margin-top: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      padding: 3px 6px;
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--map-accent, var(--text-secondary));
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Final Reveal Banner */
+    .randomizer-reveal-banner {
+      position: relative;
+      z-index: 4;
+      margin-top: 24px;
+      background: rgba(15, 23, 42, 0.95);
+      border: 2px solid var(--accent-gold);
+      border-radius: 14px;
+      padding: 14px 28px;
+      text-align: center;
+      display: none;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+      animation: bannerSlideIn 0.4s var(--ease-spring);
+    }
+
+    .randomizer-reveal-banner.active {
+      display: block;
+    }
+
+    @keyframes bannerSlideIn {
+      0% { opacity: 0; transform: translateY(15px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+
+    .reveal-title {
+      font-size: 20px;
+      font-weight: 900;
+      color: var(--accent-gold);
+      letter-spacing: 0.8px;
+    }
+
+    .reveal-sub {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      margin-top: 4px;
+    }
+
+    .reveal-countdown {
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--accent-cyan);
+      margin-top: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+
+    /* ==========================================================================
+       8. IN-GAME HUD DESIGN (STREAMLINED & TACTICAL)
+       ========================================================================== */
+    .game-hud {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 12px 18px;
+      z-index: 20;
+    }
+
+    .hud-top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    /* Player Status Card */
+    .player-vitals-card {
+      background: var(--bg-glass);
+      backdrop-filter: blur(10px);
+      padding: 8px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border-default);
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      width: 220px;
+      pointer-events: auto;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .vitals-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .vitals-identity {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .vitals-avatar-thumb {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      border: 1.5px solid var(--hero-accent, var(--accent-cyan));
+      background: #1e293b;
+      overflow: hidden;
+      flex-shrink: 0;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    }
+
+    .vitals-avatar-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .vitals-name {
+      font-size: 12px;
+      font-weight: 800;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .vitals-lives {
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--accent-crimson);
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .vitals-hp-track {
+      width: 100%;
+      height: 8px;
+      background: #1e293b;
+      border-radius: 4px;
+      overflow: hidden;
+      border: 1px solid rgba(0,0,0,0.5);
+    }
+
+    .vitals-hp-fill {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, #ef4444, #22c55e);
+      transition: width 0.15s ease-out;
+    }
+
+    .vitals-hp-text {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-secondary);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* Center Match Score & Event */
+    .hud-center-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .match-timer-box {
+      background: var(--bg-glass);
+      backdrop-filter: blur(10px);
+      padding: 4px 18px 7px;
+      border-radius: 12px;
+      border: 1px solid var(--border-default);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .timer-text {
+      font-size: 22px;
+      font-weight: 800;
+      color: #fff;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .delivery-stars {
+      display: flex;
+      gap: 5px;
+      margin-top: 2px;
+    }
+
+    .delivery-pill {
+      width: 24px;
+      height: 12px;
+      background: #334155;
+      border-radius: 999px;
+      border: 1px solid #475569;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .delivery-pill.filled {
+      background: var(--accent-gold);
+      border-color: #fef08a;
+      box-shadow: 0 0 8px rgba(245, 158, 11, 0.8);
+    }
+
+    .delivery-pill.filled::after {
+      content: "★";
+      font-size: 8px;
+      color: #fff;
+    }
+
+    .carried-box-pill {
+      background: var(--accent-gold);
+      color: #78350f;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 2px 8px;
+      border-radius: 999px;
+      display: none;
+    }
+
+    .carried-box-pill.active {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Boss Box */
+    .hud-boss-card {
+      background: var(--bg-glass);
+      backdrop-filter: blur(10px);
+      padding: 7px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 4px;
+      width: 180px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .boss-title {
+      font-size: 11px;
+      font-weight: 800;
+      color: #f87171;
+    }
+
+    .boss-bar-track {
+      width: 100%;
+      height: 6px;
+      background: #334155;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .boss-bar-fill {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, #f59e0b, #ef4444);
+    }
+
+    /* Bottom HUD: 3 Abilities + Basic Attack */
+    .hud-bottom-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+
+    .abilities-tray {
+      display: flex;
+      gap: 10px;
+      pointer-events: auto;
+    }
+
+    .action-slot {
+      width: 62px;
+      height: 62px;
+      background: var(--bg-surface);
+      border: 2px solid var(--border-default);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      cursor: pointer;
+      box-shadow: var(--shadow-sm);
+      transition: transform 0.1s;
+    }
+
+    .action-slot:active {
+      transform: scale(0.95);
+    }
+
+    .action-slot .icon {
+      font-size: 22px;
+    }
+
+    .action-slot .name {
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--text-secondary);
+      max-width: 52px;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+
+    .action-slot .key-tag {
+      position: absolute;
+      top: -6px;
+      right: -6px;
+      background: var(--bg-deep);
+      border: 1px solid var(--border-default);
+      color: var(--accent-cyan);
+      font-size: 9px;
+      font-weight: 800;
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+
+    .action-cooldown-overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.78);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 800;
+      color: #f87171;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s;
+    }
+
+    .action-slot.cooldown .action-cooldown-overlay {
+      opacity: 1;
+    }
+
+    /* Helper Control Prompts */
+    .control-hints-pill {
+      background: var(--bg-glass);
+      backdrop-filter: blur(10px);
+      padding: 6px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--border-subtle);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .kbd {
+      background: #334155;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    /* Respawn Splash Overlay */
+    .respawn-banner {
+      position: absolute;
+      top: 40%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(239, 68, 68, 0.95);
+      color: #fff;
+      padding: 14px 28px;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 800;
+      display: none;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+      text-align: center;
+      z-index: 40;
+    }
+
+    .respawn-banner.active {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Header Navigation -->
+  <header>
+    <div class="brand">
+      <h1>🎮 Crate Heist <span class="badge">10 Playable Heroes</span></h1>
+    </div>
+
+    <!-- Multi-Biome Tabs -->
+    <div class="map-tabs">
+      <button class="map-tab-btn active" data-map="warehouse"><span>🏭</span> Warehouse</button>
+      <button class="map-tab-btn" data-map="glacier"><span>❄️</span> Glacier</button>
+      <button class="map-tab-btn" data-map="crucible"><span>🌋</span> Crucible</button>
+      <button class="map-tab-btn" data-map="cyber"><span>🏙️</span> Cyber</button>
+      <button class="map-tab-btn" data-map="jungle"><span>🌿</span> Jungle</button>
+    </div>
+
+    <div class="header-actions">
+      <button class="btn-header primary" id="btn-open-hero-select">
+        <span>🦸</span> Hero Draft (H)
+      </button>
+      <button class="btn-header gold" id="btn-roll-match">
+        <span>🎲</span> Roll Match
+      </button>
+      <button class="btn-header" id="btn-force-event">
+        <span>⚡</span> Map Event
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Game Canvas Container -->
+  <main>
+    <div class="canvas-container">
+      <canvas id="gameCanvas" width="1024" height="576"></canvas>
+
+      <!-- Respawn Splash Overlay -->
+      <div class="respawn-banner" id="respawn-banner">
+        <div>💀 HERO DOWN!</div>
+        <div style="font-size: 12px; font-weight: 600; margin-top: 4px;">Respawning at base in <span id="respawn-countdown">3</span>s...</div>
+      </div>
+
+      <!-- In-Game HUD -->
+      <div class="game-hud">
+        <!-- Top Bar -->
+        <div class="hud-top-bar">
+          <!-- Player Health & Lives -->
+          <div class="player-vitals-card">
+            <div class="vitals-header">
+              <div class="vitals-identity">
+                <div class="vitals-avatar-thumb" id="hud-hero-avatar-thumb">
+                  <img src="assets/heroes/hero_01_avatar.png" alt="Hero Avatar" id="hud-hero-avatar-img" />
+                </div>
+                <span class="vitals-name" id="hud-hero-name">Guardian</span>
+              </div>
+              <span class="vitals-lives" id="hud-hero-lives">
+                ❤️❤️❤️
+              </span>
+            </div>
+            <div class="vitals-hp-track">
+              <div class="vitals-hp-fill" id="hud-hero-hp-bar"></div>
+            </div>
+            <div class="vitals-hp-text">
+              <span>HP</span>
+              <span id="hud-hero-hp-text">300 / 300</span>
+            </div>
+          </div>
+
+          <!-- Center Match Status -->
+          <div class="hud-center-wrap">
+            <div class="match-timer-box">
+              <div class="timer-text" id="match-timer-text">02:45</div>
+              <div class="delivery-stars">
+                <div class="delivery-pill" id="star-pill-1"></div>
+                <div class="delivery-pill" id="star-pill-2"></div>
+              </div>
+            </div>
+            <div class="carried-box-pill" id="carried-box-pill">
+              <span>📦</span> <span id="carried-box-text">HOLDING STAR CRATE</span>
+            </div>
+          </div>
+
+          <!-- Boss Health & Avatar -->
+          <div class="hud-boss-card" id="hud-boss-card">
+            <div class="boss-identity-row" style="display: flex; align-items: center; justify-content: flex-end; gap: 8px; width: 100%;">
+              <div style="text-align: right; line-height: 1.1;">
+                <div class="boss-title" id="hud-boss-name">GOROG</div>
+                <div class="boss-sub" id="hud-boss-sub" style="font-size: 9px; color: #f87171; font-weight: 700;">The Brute</div>
+              </div>
+              <div class="boss-avatar-thumb" id="hud-boss-avatar-thumb" style="width: 32px; height: 32px; border-radius: 8px; border: 2px solid #ef4444; overflow: hidden; background: #000; flex-shrink: 0; box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);">
+                <img src="assets/bosses/boss_01_gorog_avatar.png" id="hud-boss-avatar-img" style="width: 100%; height: 100%; object-fit: cover;" alt="Boss Portrait" />
+              </div>
+            </div>
+            <div class="boss-bar-track">
+              <div class="boss-bar-fill" id="hud-boss-hp-bar"></div>
+            </div>
+            <div style="font-size: 9px; color: #94a3b8; width: 100%; display: flex; justify-content: space-between;">
+              <span>BOSS HP</span>
+              <span id="hud-boss-hp-text">500 / 500</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom Bar: Abilities & Controls -->
+        <div class="hud-bottom-bar">
+          <!-- 3 Active Abilities + Basic Attack -->
+          <div class="abilities-tray">
+            <!-- Basic Attack Slot -->
+            <div class="action-slot" id="slot-attack" style="border-color: #f59e0b;">
+              <span class="key-tag">L-Click</span>
+              <span class="icon" id="slot-attack-icon">⚔️</span>
+              <span class="name" id="slot-attack-name">Attack</span>
+              <div class="action-cooldown-overlay" id="slot-attack-cd">0.3</div>
+            </div>
+
+            <!-- Ability 1 [Q] -->
+            <div class="action-slot" id="slot-ab1">
+              <span class="key-tag">Q</span>
+              <span class="icon" id="slot-ab1-icon">📢</span>
+              <span class="name" id="slot-ab1-name">Taunt</span>
+              <div class="action-cooldown-overlay" id="slot-ab1-cd">4.0</div>
+            </div>
+
+            <!-- Ability 2 [E] -->
+            <div class="action-slot" id="slot-ab2">
+              <span class="key-tag">E</span>
+              <span class="icon" id="slot-ab2-icon">💥</span>
+              <span class="name" id="slot-ab2-name">Ground Slam</span>
+              <div class="action-cooldown-overlay" id="slot-ab2-cd">5.0</div>
+            </div>
+
+            <!-- Ability 3 [Space] -->
+            <div class="action-slot" id="slot-ab3">
+              <span class="key-tag">Space</span>
+              <span class="icon" id="slot-ab3-icon">🛡️</span>
+              <span class="name" id="slot-ab3-name">Last Stand</span>
+              <div class="action-cooldown-overlay" id="slot-ab3-cd">8.0</div>
+            </div>
+          </div>
+
+          <!-- Instructions & Tips -->
+          <div class="control-hints-pill">
+            <span><span class="kbd">WASD</span> Move</span>
+            <span>•</span>
+            <span><span class="kbd">L-Click</span> or <span class="kbd">F</span> Attack</span>
+            <span>•</span>
+            <span><span class="kbd">Q</span> / <span class="kbd">E</span> / <span class="kbd">Space</span> Abilities</span>
+            <span>•</span>
+            <span><span class="kbd">H</span> Switch Hero</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==========================================================================
+         HERO SELECTION SCREEN (FULL-SCREEN DRAFT EXPERIENCE)
+         ========================================================================== -->
+    <div class="hero-select-screen" id="screen-hero-select">
+      <!-- Top Draft Header -->
+      <div class="draft-top-bar">
+        <div class="draft-phase-info">
+          <div class="phase-badge">
+            <span class="phase-dot"></span>
+            <span>5-PLAYER CO-OP DRAFT</span>
+          </div>
+          <div class="draft-title-text">
+            <h2>TACTICAL HERO SELECTION</h2>
+            <p>Coordinate operative choices before deploying into the arena</p>
+          </div>
+        </div>
+
+        <!-- Central Draft Countdown Timer -->
+        <div class="draft-timer-box">
+          <span class="timer-label">DRAFT TIME</span>
+          <span class="timer-display" id="draft-timer-num">25s</span>
+        </div>
+
+        <div class="draft-top-actions">
+          <button class="btn-header" id="btn-draft-random">
+            <span>🎲</span> Random Hero
+          </button>
+          <button class="btn-header primary" id="btn-close-draft">
+            <span>✕</span> Return to Game
+          </button>
+        </div>
+      </div>
+
+      <!-- 5-Player Team Squad Roster Bar -->
+      <div class="team-squad-bar" id="team-squad-bar">
+        <!-- Dynamically populated via JS -->
+      </div>
+
+      <!-- Main Draft Body: 10 Heroes (Left) + Large Preview Showcase (Right) -->
+      <div class="hero-draft-body">
+        <!-- Left: 10-Hero Roster -->
+        <div class="hero-roster-pane">
+          <div class="roster-header-label">
+            <span>OPERATIVE ROSTER (10 UNIQUE HEROES)</span>
+            <span>HOVER TO INSPECT • CLICK TO SELECT</span>
+          </div>
+
+          <div class="hero-grid-10" id="hero-roster-grid">
+            <!-- 10 Hero Cards generated dynamically via JS -->
+          </div>
+        </div>
+
+        <!-- Right: Large Hero Preview Panel -->
+        <div class="hero-preview-panel">
+          <div class="preview-ambient-glow" id="preview-glow"></div>
+
+          <!-- Hero Art Showcase with Idle Breathing Animation -->
+          <div class="preview-top-section">
+            <div class="preview-hero-art-box" id="preview-art-box">
+              <img id="preview-hero-art" src="assets/heroes/hero_01.png" alt="Hero Full Artwork" />
+            </div>
+            <div class="preview-hero-identity">
+              <div class="preview-hero-tag" id="preview-hero-tag">01 • FRONTLINE TANK</div>
+              <div class="preview-hero-name" id="preview-hero-name">GUARDIAN</div>
+              <div class="preview-hero-fantasy" id="preview-hero-fantasy">Heavy frontline tank who forces the boss to target him and absorbs massive pressure.</div>
+            </div>
+          </div>
+
+          <!-- Tactical Stats Breakdown -->
+          <div class="preview-stats-grid">
+            <div class="stat-row">
+              <span class="stat-row-label">SURVIVABILITY</span>
+              <span class="stat-row-val" id="stat-hp">300 HP</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label">BASE DAMAGE</span>
+              <span class="stat-row-val" id="stat-dmg">15 PWR</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label">MOBILITY SPEED</span>
+              <span class="stat-row-val" id="stat-spd">2.5 SPD</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label">COMBAT ROLE</span>
+              <span class="stat-row-val" id="stat-role">MELEE TANK</span>
+            </div>
+          </div>
+
+          <!-- 4 Unified Ability Cards Tray -->
+          <div class="preview-abilities-tray" id="preview-abilities-list">
+            <!-- Ability cards injected via JS -->
+          </div>
+
+          <!-- Lock-in Hero Action CTA -->
+          <button class="btn-lock-hero" id="btn-lock-hero">
+            <span>🔒</span> LOCK IN HERO & ROLL MAP
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==========================================================================
+         TACTICAL MAP RANDOMIZER & REVEAL SCREEN
+         ========================================================================== -->
+    <div class="map-randomizer-screen hidden" id="screen-map-randomizer">
+      <div class="randomizer-bloom-overlay" id="randomizer-bloom"></div>
+
+      <div class="randomizer-header">
+        <div class="randomizer-title">
+          <span>🛰️</span> TACTICAL BIOME SCANNER
+        </div>
+        <div class="randomizer-sub">
+          COOPERATIVE DEPLOYMENT • RANDOMIZING TARGET ARENA
+        </div>
+      </div>
+
+      <!-- 5 Map Cards Array -->
+      <div class="map-cards-array" id="map-cards-array">
+        <div class="scanner-laser-line" id="scanner-laser"></div>
+        <!-- 5 Map Cards populated dynamically via JS -->
+      </div>
+
+      <!-- Final Reveal Announcement Banner -->
+      <div class="randomizer-reveal-banner" id="randomizer-reveal-banner">
+        <div class="reveal-title" id="reveal-title">TARGET LOCATION LOCKED: [ CRUCIBLE ]</div>
+        <div class="reveal-sub" id="reveal-sub">INDUSTRIAL VOLCANIC FOUNDRY • RESIDENT BOSS: GOROG</div>
+        <div class="reveal-countdown" id="reveal-status">DEPLOYING SQUAD INTO ARENA IN 1.2s...</div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    /* ==========================================================================
+       ROSTER OF 10 FULLY IMPLEMENTED PLAYABLE HEROES
+       ========================================================================== */
+
+    const HEROES = [
+      {
+        id: "guardian",
+        num: "01",
+        name: "Guardian",
+        title: "Frontline Protector",
+        icon: "🛡️",
+        accent: "#3b82f6",
+        glow: "rgba(59, 130, 246, 0.4)",
+        maxHp: 300,
+        speed: 2.5,
+        damage: 15,
+        fantasy: "Heavy frontline tank who forces the boss to target him and survives high damage.",
+        attack: {
+          name: "Shield Bash",
+          icon: "🛡️",
+          cooldown: 0.5,
+          range: 55,
+          desc: "Wide melee arc dealing 20 damage and knocking back nearby enemies."
+        },
+        ab1: {
+          name: "Taunt",
+          icon: "📢",
+          key: "Q",
+          cooldown: 8.0,
+          desc: "Forces the Boss and all nearby enemies to lock onto Guardian for 4 seconds."
+        },
+        ab2: {
+          name: "Ground Slam",
+          icon: "💥",
+          key: "E",
+          cooldown: 6.0,
+          desc: "Shockwave dealing 35 damage, knocking back and interrupting all enemies in 120px radius."
+        },
+        ab3: {
+          name: "Last Stand",
+          icon: "🔰",
+          key: "Space",
+          cooldown: 12.0,
+          desc: "Reduces all incoming damage by 75% for 4s, but reduces movement speed by 25%."
+        }
+      },
+      {
+        id: "phantom",
+        num: "02",
+        name: "Phantom",
+        title: "Stealth Infiltrator",
+        icon: "👥",
+        accent: "#8b5cf6",
+        glow: "rgba(139, 92, 246, 0.4)",
+        maxHp: 110,
+        speed: 4.2,
+        damage: 22,
+        fantasy: "Fragile ghost-like infiltrator who bypasses enemies unseen and teleports across the arena.",
+        attack: {
+          name: "Twin Daggers",
+          icon: "🗡️",
+          cooldown: 0.35,
+          range: 48,
+          desc: "Rapid dual slashes dealing 22 damage."
+        },
+        ab1: {
+          name: "Invisibility",
+          icon: "🌫️",
+          key: "Q",
+          cooldown: 10.0,
+          desc: "Cloaks in shadow for 4 seconds. Enemies cannot target or see the Phantom."
+        },
+        ab2: {
+          name: "Phase Step",
+          icon: "⚡",
+          key: "E",
+          cooldown: 4.5,
+          desc: "Instantly teleports 130px in movement direction, bypassing obstacles and enemies."
+        },
+        ab3: {
+          name: "Silent Run",
+          icon: "💨",
+          key: "Space",
+          cooldown: 7.0,
+          desc: "Increases movement speed by +50% for 3.5s with zero footstep detection."
+        }
+      },
+      {
+        id: "sharpshooter",
+        num: "03",
+        name: "Sharpshooter",
+        title: "Long-Range Specialist",
+        icon: "🎯",
+        accent: "#f59e0b",
+        glow: "rgba(245, 158, 11, 0.4)",
+        maxHp: 140,
+        speed: 3.0,
+        damage: 35,
+        fantasy: "Deadly marksman who snipes enemies from afar and shatters crystal structures.",
+        attack: {
+          name: "Sniper Rifle",
+          icon: "🔫",
+          cooldown: 0.7,
+          range: 400,
+          desc: "Fires high-velocity long-range bullet dealing 35 damage."
+        },
+        ab1: {
+          name: "Precision Shot",
+          icon: "🎯",
+          key: "Q",
+          cooldown: 6.0,
+          desc: "Charges 0.4s and fires a lethal super-bullet dealing 90 damage."
+        },
+        ab2: {
+          name: "Crystal Breaker",
+          icon: "💎",
+          key: "E",
+          cooldown: 7.0,
+          desc: "Heavy explosive round dealing 50 damage to enemies, but 180 massive damage to Crystal Towers!"
+        },
+        ab3: {
+          name: "Piercing Round",
+          icon: "⚡",
+          key: "Space",
+          cooldown: 8.0,
+          desc: "Fires a penetrating rail beam that passes through all enemies in a line dealing 45 damage."
+        }
+      },
+      {
+        id: "medic",
+        num: "04",
+        name: "Medic",
+        title: "Combat Healer",
+        icon: "💉",
+        accent: "#10b981",
+        glow: "rgba(16, 185, 129, 0.4)",
+        maxHp: 160,
+        speed: 3.2,
+        damage: 16,
+        fantasy: "Dedicated support healer keeping fragile carriers and frontline tanks alive.",
+        attack: {
+          name: "Bio Dart",
+          icon: "💉",
+          cooldown: 0.5,
+          range: 240,
+          desc: "Fires a syringe dealing 16 damage to foes or 20 healing to teammates."
+        },
+        ab1: {
+          name: "Healing Beam",
+          icon: "✨",
+          key: "Q",
+          cooldown: 6.0,
+          desc: "Channels a continuous green beam restoring 30 HP/s to target ally (or self) for 3s."
+        },
+        ab2: {
+          name: "Recovery Field",
+          icon: "🟢",
+          key: "E",
+          cooldown: 9.0,
+          desc: "Deploys an 80px healing zone on the ground that restores 18 HP/s for 6 seconds."
+        },
+        ab3: {
+          name: "Second Wind",
+          icon: "💖",
+          key: "Space",
+          cooldown: 11.0,
+          desc: "Instantly restores 75 HP and cures slow debuffs."
+        }
+      },
+      {
+        id: "scanner",
+        num: "05",
+        name: "Scanner",
+        title: "Recon & Box Specialist",
+        icon: "📡",
+        accent: "#eab308",
+        glow: "rgba(234, 179, 8, 0.4)",
+        maxHp: 150,
+        speed: 3.1,
+        damage: 20,
+        fantasy: "Intel expert who detects real vs fake boxes, marks crates, and sees through walls.",
+        attack: {
+          name: "Pulse Taser",
+          icon: "⚡",
+          cooldown: 0.45,
+          range: 160,
+          desc: "Arcs electricity dealing 20 damage."
+        },
+        ab1: {
+          name: "Scan Pulse",
+          icon: "📡",
+          key: "Q",
+          cooldown: 5.0,
+          desc: "Radial sonar pulse (250px). Tags Real Boxes with Green ✓, Fake Boxes with Red ✗, reveals Camo boxes!"
+        },
+        ab2: {
+          name: "Deep Scan",
+          icon: "👁️",
+          key: "E",
+          cooldown: 8.0,
+          desc: "Reveals all hidden boxes, enemies, and boss positions through walls for 5s."
+        },
+        ab3: {
+          name: "Mark Box",
+          icon: "📍",
+          key: "Space",
+          cooldown: 9.0,
+          desc: "Tags the nearest real box with an overhead beacon visible anywhere on the map."
+        }
+      },
+      {
+        id: "wisp",
+        num: "06",
+        name: "Wisp",
+        title: "Aerial Sky Spirit",
+        icon: "✨",
+        accent: "#06b6d4",
+        glow: "rgba(6, 182, 212, 0.4)",
+        maxHp: 95,
+        speed: 4.4,
+        damage: 18,
+        fantasy: "Ultra-mobile aerial spirit who flies over obstacles and performs lightning-fast air dashes.",
+        attack: {
+          name: "Star Spark",
+          icon: "⭐",
+          cooldown: 0.4,
+          range: 220,
+          desc: "Launches homing starlight sparks dealing 18 damage."
+        },
+        ab1: {
+          name: "Flight",
+          icon: "🪽",
+          key: "Q",
+          cooldown: 10.0,
+          desc: "Soars into the air for 4.5s: ignores obstacle walls, lava/mud terrain, and ground attacks."
+        },
+        ab2: {
+          name: "Air Dash",
+          icon: "💨",
+          key: "E",
+          cooldown: 4.0,
+          desc: "Performs a sharp aerial dash pushing enemies back with gale winds."
+        },
+        ab3: {
+          name: "Emergency Boost",
+          icon: "⚡",
+          key: "Space",
+          cooldown: 12.0,
+          desc: "Gains +60% move speed and brief invulnerability for 2.5s (auto-activates when critical!)."
+        }
+      },
+      {
+        id: "aegis",
+        num: "07",
+        name: "Aegis",
+        title: "Crystal Bulwark",
+        icon: "🔷",
+        accent: "#2563eb",
+        glow: "rgba(37, 99, 235, 0.4)",
+        maxHp: 220,
+        speed: 2.9,
+        damage: 18,
+        fantasy: "Defensive anchor who absorbs teammate damage and deploys physical energy barrier walls.",
+        attack: {
+          name: "Kinetic Wave",
+          icon: "🌊",
+          cooldown: 0.6,
+          range: 90,
+          desc: "Emits a wide shockwave dealing 22 damage."
+        },
+        ab1: {
+          name: "Energy Link",
+          icon: "🔗",
+          key: "Q",
+          cooldown: 7.0,
+          desc: "Links to an ally (or self), absorbing 40% of their damage taken into Aegis's pool."
+        },
+        ab2: {
+          name: "Barrier Wall",
+          icon: "🧱",
+          key: "E",
+          cooldown: 9.0,
+          desc: "Deploys an energy barrier for 6s that blocks all enemy projectiles and halts Boss movement."
+        },
+        ab3: {
+          name: "Rally Aura",
+          icon: "🛡️",
+          key: "Space",
+          cooldown: 10.0,
+          desc: "Grants allies in 140px radius +35% move speed, 30% damage resistance, and -2s cooldowns."
+        }
+      },
+      {
+        id: "trickster",
+        num: "08",
+        name: "Trickster",
+        title: "Master of Deception",
+        icon: "🃏",
+        accent: "#ec4899",
+        glow: "rgba(236, 72, 153, 0.4)",
+        maxHp: 130,
+        speed: 3.6,
+        damage: 20,
+        fantasy: "AI manipulator who confuses enemies with decoys, moving holograms, and false threat signals.",
+        attack: {
+          name: "Card Volley",
+          icon: "🃏",
+          cooldown: 0.4,
+          range: 200,
+          desc: "Throws 3 holographic cards in a spread dealing 12 damage each."
+        },
+        ab1: {
+          name: "Decoy Dummy",
+          icon: "🎭",
+          key: "Q",
+          cooldown: 8.0,
+          desc: "Spawns a stationary decoy clone with 100 HP. Enemies and the Boss target the decoy!"
+        },
+        ab2: {
+          name: "Hologram Runner",
+          icon: "🏃",
+          key: "E",
+          cooldown: 6.5,
+          desc: "Sends a running hologram clone forward that pulls enemy attention."
+        },
+        ab3: {
+          name: "False Signal",
+          icon: "📍",
+          key: "Space",
+          cooldown: 11.0,
+          desc: "Pings a false objective beacon. The Boss AI abandons its post to investigate it for 4.5s!"
+        }
+      },
+      {
+        id: "berserker",
+        num: "09",
+        name: "Berserker",
+        title: "Dual-Axe Brawler",
+        icon: "🪓",
+        accent: "#dc2626",
+        glow: "rgba(220, 38, 38, 0.4)",
+        maxHp: 240,
+        speed: 3.0,
+        damage: 38,
+        fantasy: "Fierce melee warrior who charges through crowds and deals amplified damage as health drops.",
+        attack: {
+          name: "Dual Cleave",
+          icon: "🪓",
+          cooldown: 0.45,
+          range: 52,
+          desc: "Heavy front cone slash dealing 38 damage."
+        },
+        ab1: {
+          name: "Bull Charge",
+          icon: "🐂",
+          key: "Q",
+          cooldown: 6.5,
+          desc: "Rushes forward at 3x speed, bowling over and knocking back all enemies for 40 damage."
+        },
+        ab2: {
+          name: "Blood Rage",
+          icon: "🔥",
+          key: "E",
+          cooldown: 8.0,
+          desc: "Enters fiery rage for 4s: +50% attack speed, +40% melee damage."
+        },
+        ab3: {
+          name: "Revenge Burst",
+          icon: "💥",
+          key: "Space",
+          cooldown: 10.0,
+          desc: "Detonates stored fury, dealing damage to all nearby enemies equal to 60% of missing HP!"
+        }
+      },
+      {
+        id: "engineer",
+        num: "10",
+        name: "Engineer",
+        title: "Area Control Builder",
+        icon: "🔧",
+        accent: "#f97316",
+        glow: "rgba(249, 115, 22, 0.4)",
+        maxHp: 160,
+        speed: 3.0,
+        damage: 22,
+        fantasy: "Defensive tactician who deploys automated turrets, repair drones, and immobilizing traps.",
+        attack: {
+          name: "Rivet Gun",
+          icon: "🔫",
+          cooldown: 0.35,
+          range: 210,
+          desc: "Rapid pneumatic rivets dealing 18 damage."
+        },
+        ab1: {
+          name: "Deploy Turret",
+          icon: "🤖",
+          key: "Q",
+          cooldown: 8.0,
+          desc: "Places an automated tripod turret that shoots nearby enemies for 14 damage/shot."
+        },
+        ab2: {
+          name: "Repair Drone",
+          icon: "🛸",
+          key: "E",
+          cooldown: 9.0,
+          desc: "Launches an orbiting drone that periodically heals the hero for 14 HP every 1.5s."
+        },
+        ab3: {
+          name: "Bear Trap",
+          icon: "🪤",
+          key: "Space",
+          cooldown: 7.0,
+          desc: "Lays a concealed trap on the ground. Enemies who step on it are rooted for 2.5s and take 35 damage."
+        }
+      }
+    ];
+
+    /* ==========================================================================
+       OFFICIAL GAME-READY HERO ASSET SPRITE LOADER
+       ========================================================================== */
+    const HERO_SPRITES = {};
+    const HERO_AVATARS = {};
+    HEROES.forEach(h => {
+      const spr = new Image();
+      spr.src = `assets/heroes/hero_${h.num}.png`;
+      HERO_SPRITES[h.id] = spr;
+
+      const av = new Image();
+      av.src = `assets/heroes/hero_${h.num}_avatar.png`;
+      HERO_AVATARS[h.id] = av;
+    });
+
+    /* ==========================================================================
+       OFFICIAL GAME-READY BOSS ASSET SPRITE LOADER (5 BOSS ROSTER)
+       ========================================================================== */
+    const BOSS_REGISTRY = {
+      gorog: {
+        id: 'gorog',
+        num: '01',
+        name: 'Gorog',
+        title: 'The Brute',
+        accent: '#ef4444',
+        glow: 'rgba(239, 68, 68, 0.6)',
+        renderScale: 94,
+        radius: 34,
+        maxHp: 650
+      },
+      vex: {
+        id: 'vex',
+        num: '02',
+        name: 'Vex',
+        title: 'The Artillery',
+        accent: '#06b6d4',
+        glow: 'rgba(6, 182, 212, 0.6)',
+        renderScale: 98,
+        radius: 30,
+        maxHp: 550
+      },
+      mother: {
+        id: 'mother',
+        num: '03',
+        name: 'Mother',
+        title: 'The Summoner',
+        accent: '#ec4899',
+        glow: 'rgba(236, 72, 153, 0.6)',
+        renderScale: 88,
+        radius: 32,
+        maxHp: 580
+      },
+      shade: {
+        id: 'shade',
+        num: '04',
+        name: 'Shade',
+        title: 'The Hunter',
+        accent: '#8b5cf6',
+        glow: 'rgba(139, 92, 246, 0.6)',
+        renderScale: 84,
+        radius: 28,
+        maxHp: 480
+      },
+      warden: {
+        id: 'warden',
+        num: '05',
+        name: 'Warden',
+        title: 'The Controller',
+        accent: '#3b82f6',
+        glow: 'rgba(59, 130, 246, 0.6)',
+        renderScale: 90,
+        radius: 32,
+        maxHp: 600
+      }
+    };
+
+    const BOSS_SPRITES = {};
+    const BOSS_AVATARS = {};
+    Object.values(BOSS_REGISTRY).forEach(b => {
+      const spr = new Image();
+      spr.src = `assets/bosses/boss_${b.num}_${b.id}.png`;
+      BOSS_SPRITES[b.id] = spr;
+
+      const av = new Image();
+      av.src = `assets/bosses/boss_${b.num}_${b.id}_avatar.png`;
+      BOSS_AVATARS[b.id] = av;
+    });
+
+    /* ==========================================================================
+       OFFICIAL 5-BIOME MAP ENVIRONMENT ASSET LOADER
+       ========================================================================== */
+    const MAP_BACKGROUNDS = {
+      warehouse: new Image(),
+      glacier: new Image(),
+      crucible: new Image(),
+      cyber: new Image(),
+      jungle: new Image()
+    };
+    MAP_BACKGROUNDS.warehouse.src = 'assets/maps/map_01_warehouse.png';
+    MAP_BACKGROUNDS.glacier.src = 'assets/maps/map_02_glacier.png';
+    MAP_BACKGROUNDS.crucible.src = 'assets/maps/map_03_crucible.png';
+    MAP_BACKGROUNDS.cyber.src = 'assets/maps/map_04_cyber.png';
+    MAP_BACKGROUNDS.jungle.src = 'assets/maps/map_05_jungle.png';
+
+    /* ==========================================================================
+       MAP BIOMES & ENVIRONMENT CONFIGURATION
+       ========================================================================== */
+    const BIOMES = {
+      warehouse: {
+        name: 'Warehouse',
+        bossId: 'shade',
+        theme: 'Industrial Logistics & Storage Facility',
+        accentColor: '#f59e0b',
+        eventName: '⚡ Industrial Surge',
+        eventDesc: 'Conveyors accelerated! Hazard lights pulsing!',
+        floorA: '#f6ecdc', floorB: '#ecdfc8', wallTop: '#b27643', wallSide: '#784920',
+        hazard: '#f59e0b', friction: 0.88, weather: 'dust',
+        bossSpawn: { x: 648, y: 260 },
+        deliveryZone: { x: 25, y: 220, w: 100, h: 90 },
+        crystals: [
+          { id: 1, x: 648, y: 260, hp: 350, maxHp: 350, r: 28, color: '#06b6d4', name: 'ENERGY GENERATOR' },
+          { id: 2, x: 250, y: 440, hp: 200, maxHp: 200, r: 20, color: '#06b6d4', name: 'SUB-CELL' }
+        ],
+        boxes: [
+          { id: 1, x: 220, y: 155, type: 'real', isCarried: false, scanned: false, marked: false },
+          { id: 2, x: 380, y: 330, type: 'real', isCarried: false, scanned: false, marked: false },
+          { id: 3, x: 530, y: 190, type: 'fake', isCarried: false, scanned: false, marked: false },
+          { id: 4, x: 770, y: 360, type: 'camo', isCarried: false, scanned: false, marked: false }
+        ],
+        walls: [
+          { x: 140, y: 80, w: 90, h: 70 },
+          { x: 390, y: 170, w: 70, h: 110 },
+          { x: 540, y: 80, w: 120, h: 50 },
+          { x: 670, y: 360, w: 140, h: 65 }
+        ],
+        speedStrips: [{ x: 490, y: 280, w: 120, h: 45 }],
+        bushes: [{ x: 60, y: 380, w: 120, h: 60 }]
+      },
+      glacier: {
+        name: 'Glacier',
+        bossId: 'vex',
+        theme: 'Sub-Zero Cryo Research Facility',
+        accentColor: '#38bdf8',
+        eventName: '❄️ Cryo Blizzard',
+        eventDesc: 'Sub-zero storm! Movement slowed by 25% for 6s!',
+        floorA: '#e0f2fe', floorB: '#bae6fd', wallTop: '#1e3a8a', wallSide: '#0f172a',
+        hazard: '#38bdf8', friction: 0.985, weather: 'snow',
+        bossSpawn: { x: 648, y: 260 },
+        deliveryZone: { x: 25, y: 220, w: 100, h: 90 },
+        crystals: [
+          { id: 1, x: 648, y: 260, hp: 350, maxHp: 350, r: 28, color: '#38bdf8', name: 'CRYO SPIRE' },
+          { id: 2, x: 780, y: 160, hp: 200, maxHp: 200, r: 20, color: '#38bdf8', name: 'THERMAL FLASK' }
+        ],
+        boxes: [
+          { id: 1, x: 230, y: 160, type: 'real', isCarried: false, scanned: false, marked: false },
+          { id: 2, x: 370, y: 340, type: 'real', isCarried: false, scanned: false, marked: false },
+          { id: 3, x: 510, y: 180, type: 'fake', isCarried: false, scanned: false, marked: false },
+          { id: 4, x: 760, y: 370, type: 'camo', isCarried: false, scanned: false, marked: false }
+        ],
+        walls: [
+          { x: 150, y: 80, w: 90, h: 70 },
+          { x: 380, y: 160, w: 75, h: 120 },
+          { x: 530, y: 90, w: 110, h: 50 },
+          { x: 680, y: 370, w: 130, h: 60 }
+        ],
+        speedStrips: [{ x: 420, y: 440, w: 180, h: 45 }],
+        bushes: [{ x: 260, y: 180, w: 80, h: 60 }]
+      },
+      crucible: {
+        name: 'Crucible',
+        bossId: 'gorog',
+        theme: 'Industrial Molten Smelting Foundry',
+        accentColor: '#ef4444',
+        eventName: '🌋 Magma Overdrive',
+        eventDesc: 'Molten vents erupt! Hero attack damage +30% for 6s!',
+        floorA: '#292524', floorB: '#1c1917', wallTop: '#7f1d1d', wallSide: '#450a0a',
+        hazard: '#ef4444', friction: 0.88, weather: 'magma',
+        bossSpawn: { x: 648, y: 260 },
+        deliveryZone: { x: 25, y: 220, w: 100, h: 90 },
+        crystals: [
+          { id: 1, x: 648, y: 260, hp: 350, maxHp: 350, r: 28, color: '#f97316', name: 'MOLTEN REACTOR' },
+          { id: 2, x: 320, y: 430, hp: 200, maxHp: 200, r: 20, color: '#f97316', name: 'SMELTER CORE' }
+        ],
+        boxes: [
+          { id: 1, x: 220, y: 150, type: 'real', isCarried: false, scanned: false, marked: false },
+          { id: 2, x: 390, y: 320, type: 'real', isCarried: false, scanned: false, marked: false },
+          { id: 3, x: 520, y: 170, type: 'fake', isCarried: false, scanned: false, marked: false },
+          { id: 4, x: 780, y: 350, type: 'camo', isCarried: false, scanned: false, marked: false }
+        ],
+        walls: [
+          { x: 160, y: 90, w: 90, h: 70 },
+          { x: 370, y: 180, w: 80, h: 110 },
+          { x: 540, y: 80, w: 120, h: 50 },
+          { x: 690, y: 360, w: 130, h: 60 }
+        ],
+        speedStrips: [{ x: 440, y: 220, w: 120, h: 50 }],
+        bushes: [{ x: 80, y: 120, w: 80, h: 60 }]
+      },
+      cyber: {
+        name: 'Cyber',
+        bossId: 'warden',
+        theme: 'Futuristic Cyberpunk Metropolis Plaza',
+        accentColor: '#a855f7',
+        eventName: '🏙️ Digital Grid Overload',
+        eventDesc: 'Holographic surge! Cooldown recovery doubled for 6s!',
+        floorA: '#0f172a', floorB: '#020617', wallTop: '#6366f1', wallSide: '#312e81',
+        hazard: '#ec4899', friction: 0.90, weather: 'cyber',
+        bossSpawn: { x: 648, y: 260 },
+        deliveryZone: { x: 25, y: 220, w: 100, h: 90 },
+        crystals: [
+          { id: 1, x: 648, y: 260, hp: 350, maxHp: 350, r: 28, color: '#c084fc', name: 'DIGITAL SPIRE' },
+          { id: 2, x: 240, y: 150, hp: 200, maxHp: 200, r: 20, color: '#c084fc', name: 'DATA NODE' }
+        ],
+        boxes: [
+          { id: 1, x: 220, y: 160, type: 'real', isCarried: false, scanned: false, marked: false },
+          { id: 2, x: 380, y: 330, type: 'real', isCarried: false, scanned: false, marked: false },
+          { id: 3, x: 530, y: 180, type: 'fake', isCarried: false, scanned: false, marked: false },
+          { id: 4, x: 770, y: 360, type: 'camo', isCarried: false, scanned: false, marked: false }
+        ],
+        walls: [
+          { x: 150, y: 80, w: 90, h: 70 },
+          { x: 380, y: 170, w: 80, h: 110 },
+          { x: 540, y: 80, w: 120, h: 50 },
+          { x: 680, y: 360, w: 130, h: 60 }
+        ],
+        speedStrips: [{ x: 450, y: 380, w: 160, h: 50 }],
+        bushes: [{ x: 100, y: 380, w: 100, h: 60 }]
+      },
+      jungle: {
+        name: 'Jungle',
+        bossId: 'mother',
+        theme: 'Overgrown Ancient Temple & Bio-Ruins',
+        accentColor: '#10b981',
+        eventName: '🌿 Spore Bloom',
+        eventDesc: 'Ancient spores bloom! All heroes regenerate 12 HP/sec!',
+        floorA: '#3f6212', floorB: '#365314', wallTop: '#78350f', wallSide: '#451a03',
+        hazard: '#84cc16', friction: 0.82, weather: 'rain',
+        bossSpawn: { x: 648, y: 260 },
+        deliveryZone: { x: 25, y: 220, w: 100, h: 90 },
+        crystals: [
+          { id: 1, x: 648, y: 260, hp: 350, maxHp: 350, r: 28, color: '#10b981', name: 'BIO-CRYSTAL SPIRE' },
+          { id: 2, x: 310, y: 430, hp: 200, maxHp: 200, r: 20, color: '#10b981', name: 'ANCIENT SEED' }
+        ],
+        boxes: [
+          { id: 1, x: 220, y: 160, type: 'real', isCarried: false, scanned: false, marked: false },
+          { id: 2, x: 380, y: 330, type: 'real', isCarried: false, scanned: false, marked: false },
+          { id: 3, x: 530, y: 180, type: 'fake', isCarried: false, scanned: false, marked: false },
+          { id: 4, x: 770, y: 360, type: 'camo', isCarried: false, scanned: false, marked: false }
+        ],
+        walls: [
+          { x: 150, y: 80, w: 90, h: 70 },
+          { x: 380, y: 170, w: 80, h: 110 },
+          { x: 540, y: 80, w: 120, h: 50 },
+          { x: 680, y: 360, w: 130, h: 60 }
+        ],
+        speedStrips: [{ x: 380, y: 260, w: 240, h: 50 }],
+        bushes: [{ x: 80, y: 220, w: 100, h: 80 }]
+      }
+    };
+
+    let currentBiomeKey = 'warehouse';
+    let currentBiome = BIOMES.warehouse;
+
+    /* ==========================================================================
+       GAME ENGINE & STATE
+       ========================================================================== */
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let currentHero = HEROES[0]; // Guardian default
+    let selectedHeroInModal = HEROES[0];
+
+    // Player State
+    const player = {
+      x: 75,
+      y: 110,
+      radius: 16,
+      vx: 0,
+      vy: 0,
+      facing: 0,
+      hp: 300,
+      maxHp: 300,
+      lives: 3,
+      isDead: false,
+      respawnTimer: 0,
+      carriedBox: null,
+      inBush: false,
+      onSpeedStrip: false,
+      
+      // Cooldowns (frames @ 60fps)
+      attackCd: 0,
+      ab1Cd: 0,
+      ab2Cd: 0,
+      ab3Cd: 0,
+
+      // Active Buff/Effect Timers
+      buffInvis: 0,
+      buffSpeed: 0,
+      buffLastStand: 0,
+      buffFlight: 0,
+      buffRage: 0,
+      buffRally: 0,
+      buffEnergyLink: 0,
+      healingBeamActive: 0,
+      emergencyBoostTriggered: false,
+      storedDamage: 0 // For Berserker Revenge
+    };
+
+    // Guardian Boss
+    const boss = {
+      x: 480,
+      y: 250,
+      radius: 26,
+      hp: 500,
+      maxHp: 500,
+      facing: 0,
+      patrolAngle: 0,
+      state: 'patrol', // patrol, telegraph, attack, stun, investigate
+      stateTimer: 0,
+      targetOverride: null, // For Decoy, Hologram, False Signal, Taunt
+      targetOverrideTimer: 0,
+      attackTelegraph: { angle: 0, spread: Math.PI / 3, range: 135, progress: 0 }
+    };
+
+    // Minion Patrol Guards (Small enemies)
+    let minionGuards = [
+      { id: 1, x: 260, y: 180, hp: 60, maxHp: 60, radius: 13, vx: 1, vy: 0, patrolMinX: 200, patrolMaxX: 340 },
+      { id: 2, x: 620, y: 320, hp: 60, maxHp: 60, radius: 13, vx: -1, vy: 0, patrolMinX: 550, patrolMaxX: 720 }
+    ];
+
+    // Crystal Towers (Destructible structures for Sharpshooter Crystal Breaker)
+    let crystalTowers = [
+      { id: 1, x: 730, y: 120, hp: 200, maxHp: 200, r: 18, color: '#06b6d4' },
+      { id: 2, x: 250, y: 440, hp: 200, maxHp: 200, r: 18, color: '#06b6d4' }
+    ];
+
+    // Boxes (Real, Fake, and Camouflaged)
+    let boxes = [
+      { id: 1, x: 205, y: 140, type: 'real', isCarried: false, scanned: false, marked: false },
+      { id: 2, x: 340, y: 260, type: 'real', isCarried: false, scanned: false, marked: false },
+      { id: 3, x: 450, y: 220, type: 'fake', isCarried: false, scanned: false, marked: false }, // Fake Decoy Box!
+      { id: 4, x: 740, y: 250, type: 'camo', isCarried: false, scanned: false, marked: false }  // Camouflaged Real Box!
+    ];
+
+    // Active Projectiles & Deployed Entities
+    let projectiles = [];
+    let deployedTurrets = [];
+    let deployedTraps = [];
+    let deployedBarriers = [];
+    let deployedRecoveryFields = [];
+    let activeDecoy = null;
+    let activeHologram = null;
+    let falseSignalPoint = null;
+    let particles = [];
+    let scanRings = [];
+
+    // Friendly AI Teammate (To test Medic healing beam, Aegis energy link, Engineer drone)
+    const teammateBot = {
+      x: 100,
+      y: 280,
+      radius: 14,
+      hp: 180,
+      maxHp: 180,
+      color: '#38bdf8'
+    };
+
+    // Score & Match Timing
+    let score = 0;
+    const targetScore = 2;
+    let matchSeconds = 165;
+
+    // Mouse coordinates on canvas
+    let mouseX = 0;
+    let mouseY = 0;
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      mouseX = (e.clientX - rect.left) * (canvas.width / rect.width);
+      mouseY = (e.clientY - rect.top) * (canvas.height / rect.height);
+      player.facing = Math.atan2(mouseY - player.y, mouseX - player.x);
+    });
+
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.button === 0) performBasicAttack();
+    });
+
+    // Keyboard Controller
+    const keys = {};
+    window.addEventListener('keydown', (e) => {
+      keys[e.code] = true;
+      if (e.code === 'KeyF') performBasicAttack();
+      if (e.code === 'KeyQ') activateAbility(1);
+      if (e.code === 'KeyE') activateAbility(2);
+      if (e.code === 'Space') { activateAbility(3); e.preventDefault(); }
+      if (e.code === 'KeyH') toggleHeroSelectModal(true);
+    });
+    window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+    /* ==========================================================================
+       HERO ABILITIES & COMBAT LOGIC
+       ========================================================================== */
+
+    function performBasicAttack() {
+      if (player.isDead || player.attackCd > 0) return;
+      player.attackCd = Math.round(currentHero.attack.cooldown * 60);
+
+      const facing = player.facing;
+
+      if (currentHero.id === 'guardian') {
+        // Shield Bash Arc
+        createSlashEffect(player.x, player.y, facing, 55, '#3b82f6');
+        damageEnemiesInArc(player.x, player.y, facing, 60, Math.PI / 2.5, currentHero.damage, 10);
+      } else if (currentHero.id === 'phantom') {
+        // Fast Twin Daggers
+        createSlashEffect(player.x, player.y, facing, 45, '#8b5cf6');
+        damageEnemiesInArc(player.x, player.y, facing, 50, Math.PI / 3, currentHero.damage, 4);
+      } else if (currentHero.id === 'sharpshooter') {
+        // Long Range Bullet
+        projectiles.push({
+          x: player.x, y: player.y,
+          vx: Math.cos(facing) * 14, vy: Math.sin(facing) * 14,
+          r: 4, damage: currentHero.damage, life: 30, color: '#f59e0b', pierce: false
+        });
+      } else if (currentHero.id === 'medic') {
+        // Bio Dart
+        projectiles.push({
+          x: player.x, y: player.y,
+          vx: Math.cos(facing) * 10, vy: Math.sin(facing) * 10,
+          r: 4, damage: currentHero.damage, healVal: 25, life: 28, color: '#10b981'
+        });
+      } else if (currentHero.id === 'scanner') {
+        // Pulse Taser Arc
+        createSlashEffect(player.x, player.y, facing, 70, '#eab308');
+        damageEnemiesInArc(player.x, player.y, facing, 75, Math.PI / 3, currentHero.damage, 3);
+      } else if (currentHero.id === 'wisp') {
+        // Homing Star Spark
+        projectiles.push({
+          x: player.x, y: player.y,
+          vx: Math.cos(facing) * 9, vy: Math.sin(facing) * 9,
+          r: 5, damage: currentHero.damage, life: 35, color: '#06b6d4', homing: true
+        });
+      } else if (currentHero.id === 'aegis') {
+        // Kinetic Wave
+        createSlashEffect(player.x, player.y, facing, 80, '#2563eb');
+        damageEnemiesInArc(player.x, player.y, facing, 85, Math.PI / 2, currentHero.damage, 8);
+      } else if (currentHero.id === 'trickster') {
+        // 3-Card Fan
+        for (let a = -0.25; a <= 0.25; a += 0.25) {
+          projectiles.push({
+            x: player.x, y: player.y,
+            vx: Math.cos(facing + a) * 9, vy: Math.sin(facing + a) * 9,
+            r: 4, damage: currentHero.damage, life: 25, color: '#ec4899'
+          });
+        }
+      } else if (currentHero.id === 'berserker') {
+        // Dual Axe Cleave
+        const bonusDmg = player.buffRage > 0 ? 1.4 : 1.0;
+        createSlashEffect(player.x, player.y, facing, 60, '#dc2626');
+        damageEnemiesInArc(player.x, player.y, facing, 65, Math.PI / 2.2, currentHero.damage * bonusDmg, 8);
+      } else if (currentHero.id === 'engineer') {
+        // Rivet Gun
+        projectiles.push({
+          x: player.x, y: player.y,
+          vx: Math.cos(facing) * 11, vy: Math.sin(facing) * 11,
+          r: 3.5, damage: currentHero.damage, life: 25, color: '#f97316'
+        });
+      }
+    }
+
+    function activateAbility(slot) {
+      if (player.isDead) return;
+
+      if (slot === 1 && player.ab1Cd <= 0) {
+        player.ab1Cd = Math.round(currentHero.ab1.cooldown * 60);
+        executeAbility1();
+      } else if (slot === 2 && player.ab2Cd <= 0) {
+        player.ab2Cd = Math.round(currentHero.ab2.cooldown * 60);
+        executeAbility2();
+      } else if (slot === 3 && player.ab3Cd <= 0) {
+        player.ab3Cd = Math.round(currentHero.ab3.cooldown * 60);
+        executeAbility3();
+      }
+    }
+
+    /* Ability 1 [Q] Implementations */
+    function executeAbility1() {
+      if (currentHero.id === 'guardian') {
+        // TAUNT: Forces boss and minions to target Guardian
+        boss.targetOverride = player;
+        boss.targetOverrideTimer = 240; // 4s
+        boss.state = 'alert';
+        createBurstParticles(player.x, player.y, '#3b82f6', 20);
+      } else if (currentHero.id === 'phantom') {
+        // INVISIBILITY: Cloak for 4s
+        player.buffInvis = 240;
+        if (boss.targetOverride === player) boss.targetOverride = null;
+        createBurstParticles(player.x, player.y, '#8b5cf6', 15);
+      } else if (currentHero.id === 'sharpshooter') {
+        // PRECISION SHOT: Lethal bullet dealing 90 damage
+        projectiles.push({
+          x: player.x, y: player.y,
+          vx: Math.cos(player.facing) * 18, vy: Math.sin(player.facing) * 18,
+          r: 6, damage: 90, life: 35, color: '#f59e0b', pierce: false
+        });
+        createBurstParticles(player.x, player.y, '#f59e0b', 12);
+      } else if (currentHero.id === 'medic') {
+        // HEALING BEAM: Channels beam healing 30 HP/s for 3s
+        player.healingBeamActive = 180;
+      } else if (currentHero.id === 'scanner') {
+        // SCAN PULSE: Reveals real vs fake boxes
+        scanRings.push({ x: player.x, y: player.y, r: 10, maxR: 260, color: '#eab308' });
+        boxes.forEach(b => {
+          if (Math.hypot(player.x - b.x, player.y - b.y) < 260) {
+            b.scanned = true;
+          }
+        });
+      } else if (currentHero.id === 'wisp') {
+        // FLIGHT: Fly above ground for 4.5s
+        player.buffFlight = 270;
+        createBurstParticles(player.x, player.y, '#06b6d4', 18);
+      } else if (currentHero.id === 'aegis') {
+        // ENERGY LINK: Absorbs teammate damage
+        player.buffEnergyLink = 300;
+        createBurstParticles(player.x, player.y, '#2563eb', 15);
+      } else if (currentHero.id === 'trickster') {
+        // DECOY: Spawns decoy dummy that boss attacks
+        activeDecoy = { x: player.x, y: player.y, hp: 100, life: 240 };
+        boss.targetOverride = activeDecoy;
+        boss.targetOverrideTimer = 240;
+        createBurstParticles(player.x, player.y, '#ec4899', 16);
+      } else if (currentHero.id === 'berserker') {
+        // BULL CHARGE: Rush forward knocking back enemies
+        player.vx = Math.cos(player.facing) * 14;
+        player.vy = Math.sin(player.facing) * 14;
+        damageEnemiesInArc(player.x, player.y, player.facing, 90, Math.PI / 2, 40, 18);
+        createBurstParticles(player.x, player.y, '#dc2626', 15);
+      } else if (currentHero.id === 'engineer') {
+        // DEPLOY TURRET: Automated turret
+        deployedTurrets.push({ x: player.x, y: player.y, hp: 120, life: 480, fireCd: 0 });
+        createBurstParticles(player.x, player.y, '#f97316', 14);
+      }
+    }
+
+    /* Ability 2 [E] Implementations */
+    function executeAbility2() {
+      if (currentHero.id === 'guardian') {
+        // GROUND SLAM: AoE Shockwave dealing 35 damage & knockback
+        scanRings.push({ x: player.x, y: player.y, r: 10, maxR: 125, color: '#3b82f6' });
+        damageEnemiesInRadius(player.x, player.y, 125, 35, 14);
+      } else if (currentHero.id === 'phantom') {
+        // PHASE STEP: Teleport 130px in movement direction
+        const dir = (player.vx !== 0 || player.vy !== 0) ? Math.atan2(player.vy, player.vx) : player.facing;
+        createBurstParticles(player.x, player.y, '#8b5cf6', 12);
+        player.x += Math.cos(dir) * 130;
+        player.y += Math.sin(dir) * 130;
+        // Clamp to map bounds
+        player.x = Math.max(30, Math.min(canvas.width - 30, player.x));
+        player.y = Math.max(50, Math.min(canvas.height - 35, player.y));
+        createBurstParticles(player.x, player.y, '#8b5cf6', 16);
+      } else if (currentHero.id === 'sharpshooter') {
+        // CRYSTAL BREAKER: Heavy explosive shell
+        projectiles.push({
+          x: player.x, y: player.y,
+          vx: Math.cos(player.facing) * 12, vy: Math.sin(player.facing) * 12,
+          r: 7, damage: 50, crystalDmg: 180, life: 30, color: '#06b6d4'
+        });
+      } else if (currentHero.id === 'medic') {
+        // RECOVERY FIELD: Ground healing zone
+        deployedRecoveryFields.push({ x: player.x, y: player.y, r: 80, life: 360 });
+      } else if (currentHero.id === 'scanner') {
+        // DEEP SCAN: See through walls for 5s
+        scanRings.push({ x: player.x, y: player.y, r: 10, maxR: 450, color: '#eab308' });
+        boxes.forEach(b => b.scanned = true);
+      } else if (currentHero.id === 'wisp') {
+        // AIR DASH: Fast aerial dash with knockback
+        player.vx = Math.cos(player.facing) * 13;
+        player.vy = Math.sin(player.facing) * 13;
+        damageEnemiesInArc(player.x, player.y, player.facing, 70, Math.PI / 2, 20, 14);
+        createBurstParticles(player.x, player.y, '#06b6d4', 12);
+      } else if (currentHero.id === 'aegis') {
+        // BARRIER WALL: Deploy solid energy wall
+        deployedBarriers.push({
+          x: player.x + Math.cos(player.facing) * 40,
+          y: player.y + Math.sin(player.facing) * 40,
+          w: 80, h: 20, angle: player.facing + Math.PI / 2, life: 360
+        });
+      } else if (currentHero.id === 'trickster') {
+        // HOLOGRAM RUNNER: Moving decoy
+        activeHologram = {
+          x: player.x, y: player.y,
+          vx: Math.cos(player.facing) * 4, vy: Math.sin(player.facing) * 4,
+          life: 240
+        };
+        boss.targetOverride = activeHologram;
+        boss.targetOverrideTimer = 240;
+      } else if (currentHero.id === 'berserker') {
+        // BLOOD RAGE: +50% atk speed, +40% dmg for 4s
+        player.buffRage = 240;
+        createBurstParticles(player.x, player.y, '#dc2626', 18);
+      } else if (currentHero.id === 'engineer') {
+        // REPAIR DRONE: Follows and heals
+        player.buffDrone = 360;
+        createBurstParticles(player.x, player.y, '#f97316', 10);
+      }
+    }
+
+    /* Ability 3 [Space] Implementations */
+    function executeAbility3() {
+      if (currentHero.id === 'guardian') {
+        // LAST STAND: -75% damage taken for 4s
+        player.buffLastStand = 240;
+        createBurstParticles(player.x, player.y, '#3b82f6', 15);
+      } else if (currentHero.id === 'phantom') {
+        // SILENT RUN: +50% move speed for 3.5s
+        player.buffSpeed = 210;
+        createBurstParticles(player.x, player.y, '#8b5cf6', 10);
+      } else if (currentHero.id === 'sharpshooter') {
+        // PIERCING ROUND: Laser penetrating bullet
+        projectiles.push({
+          x: player.x, y: player.y,
+          vx: Math.cos(player.facing) * 16, vy: Math.sin(player.facing) * 16,
+          r: 5, damage: 45, life: 35, color: '#f59e0b', pierce: true
+        });
+      } else if (currentHero.id === 'medic') {
+        // SECOND WIND: Instant 75 HP heal
+        player.hp = Math.min(player.maxHp, player.hp + 75);
+        createBurstParticles(player.x, player.y, '#10b981', 20);
+      } else if (currentHero.id === 'scanner') {
+        // MARK BOX: Highlights nearest real box with beacon
+        const realBoxes = boxes.filter(b => b.type === 'real' || b.type === 'camo');
+        if (realBoxes.length > 0) {
+          realBoxes[0].marked = true;
+          realBoxes[0].scanned = true;
+          createBurstParticles(realBoxes[0].x, realBoxes[0].y, '#eab308', 20);
+        }
+      } else if (currentHero.id === 'wisp') {
+        // EMERGENCY BOOST: +60% move speed and invulnerable
+        player.buffSpeed = 150;
+        createBurstParticles(player.x, player.y, '#06b6d4', 20);
+      } else if (currentHero.id === 'aegis') {
+        // RALLY: +35% move speed, 30% armor, -2s cooldowns
+        player.buffRally = 240;
+        player.ab1Cd = Math.max(0, player.ab1Cd - 120);
+        player.ab2Cd = Math.max(0, player.ab2Cd - 120);
+        createBurstParticles(player.x, player.y, '#2563eb', 25);
+      } else if (currentHero.id === 'trickster') {
+        // FALSE SIGNAL: Pings false threat beacon that Boss investigates
+        falseSignalPoint = { x: mouseX || (canvas.width - 150), y: mouseY || 150, life: 270 };
+        boss.targetOverride = falseSignalPoint;
+        boss.targetOverrideTimer = 270;
+        createBurstParticles(falseSignalPoint.x, falseSignalPoint.y, '#ec4899', 25);
+      } else if (currentHero.id === 'berserker') {
+        // REVENGE BURST: Unleash fury based on missing HP
+        const missingHp = player.maxHp - player.hp;
+        const revengeDmg = Math.round(missingHp * 0.6) + 20;
+        damageEnemiesInRadius(player.x, player.y, 110, revengeDmg, 16);
+        scanRings.push({ x: player.x, y: player.y, r: 10, maxR: 110, color: '#dc2626' });
+      } else if (currentHero.id === 'engineer') {
+        // BEAR TRAP: Concealed trap on ground
+        deployedTraps.push({ x: player.x, y: player.y, r: 14, active: true });
+        createBurstParticles(player.x, player.y, '#f97316', 10);
+      }
+    }
+
+    /* Helper Combat Functions */
+    function damageEnemiesInArc(cx, cy, facing, range, spread, dmg, knockback) {
+      // Check Boss
+      const distBoss = Math.hypot(boss.x - cx, boss.y - cy);
+      if (distBoss < range + boss.radius) {
+        let diff = Math.abs(Math.atan2(boss.y - cy, boss.x - cx) - facing);
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        if (Math.abs(diff) < spread / 2) {
+          damageBoss(dmg);
+        }
+      }
+
+      // Check Minions
+      minionGuards.forEach(m => {
+        const dist = Math.hypot(m.x - cx, m.y - cy);
+        if (dist < range + m.radius) {
+          let diff = Math.abs(Math.atan2(m.y - cy, m.x - cx) - facing);
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          if (Math.abs(diff) < spread / 2) {
+            m.hp -= dmg;
+            m.x += Math.cos(facing) * knockback;
+            m.y += Math.sin(facing) * knockback;
+            createBurstParticles(m.x, m.y, '#ef4444', 5);
+          }
+        }
+      });
+
+      // Check Crystal Towers
+      crystalTowers.forEach(t => {
+        const dist = Math.hypot(t.x - cx, t.y - cy);
+        if (dist < range + t.r) {
+          t.hp -= dmg;
+          createBurstParticles(t.x, t.y, '#06b6d4', 6);
+        }
+      });
+    }
+
+    function damageEnemiesInRadius(cx, cy, radius, dmg, knockback) {
+      if (Math.hypot(boss.x - cx, boss.y - cy) < radius + boss.radius) {
+        damageBoss(dmg);
+      }
+      minionGuards.forEach(m => {
+        const d = Math.hypot(m.x - cx, m.y - cy);
+        if (d < radius + m.radius) {
+          m.hp -= dmg;
+          const ang = Math.atan2(m.y - cy, m.x - cx);
+          m.x += Math.cos(ang) * knockback;
+          m.y += Math.sin(ang) * knockback;
+          createBurstParticles(m.x, m.y, '#ef4444', 6);
+        }
+      });
+    }
+
+    function updateBossHUD() {
+      const bossData = BOSS_REGISTRY[currentBiome.bossId || 'gorog'];
+      if (!bossData) return;
+
+      const titleEl = document.getElementById('hud-boss-name');
+      const subEl = document.getElementById('hud-boss-sub');
+      const avatarEl = document.getElementById('hud-boss-avatar-img');
+      const thumbEl = document.getElementById('hud-boss-avatar-thumb');
+      const barFillEl = document.getElementById('hud-boss-hp-bar');
+      const hpTextEl = document.getElementById('hud-boss-hp-text');
+
+      if (titleEl) titleEl.textContent = bossData.name.toUpperCase();
+      if (subEl) {
+        subEl.textContent = bossData.title;
+        subEl.style.color = bossData.accent;
+      }
+      if (avatarEl) avatarEl.src = `assets/bosses/boss_${bossData.num}_${bossData.id}_avatar.png`;
+      if (thumbEl) {
+        thumbEl.style.borderColor = bossData.accent;
+        thumbEl.style.boxShadow = `0 0 10px ${bossData.glow}`;
+      }
+      if (barFillEl) {
+        barFillEl.style.background = `linear-gradient(90deg, #f59e0b, ${bossData.accent})`;
+        barFillEl.style.width = `${Math.max(0, Math.min(100, (boss.hp / boss.maxHp) * 100))}%`;
+      }
+      if (hpTextEl) hpTextEl.textContent = `${Math.round(boss.hp)} / ${boss.maxHp}`;
+    }
+
+    function damageBoss(dmg) {
+      boss.hp = Math.max(0, boss.hp - dmg);
+      const bossData = BOSS_REGISTRY[currentBiome.bossId || 'gorog'];
+      createBurstParticles(boss.x, boss.y, bossData ? bossData.accent : '#f59e0b', 8);
+      updateBossHUD();
+    }
+
+    function damagePlayer(dmg) {
+      if (player.isDead) return;
+      if (player.buffFlight > 0) return; // Immune in flight
+
+      let finalDmg = dmg;
+      if (player.buffLastStand > 0) finalDmg *= 0.25; // -75% Last stand
+      if (player.buffRally > 0) finalDmg *= 0.70;     // -30% Rally
+      if (player.buffEnergyLink > 0) finalDmg *= 0.60; // -40% Energy link
+
+      player.hp = Math.max(0, player.hp - finalDmg);
+      createBurstParticles(player.x, player.y, '#ef4444', 8);
+
+      // Emergency Boost passive check for Wisp
+      if (currentHero.id === 'wisp' && player.hp < player.maxHp * 0.35 && !player.emergencyBoostTriggered) {
+        player.emergencyBoostTriggered = true;
+        player.buffSpeed = 150;
+        createBurstParticles(player.x, player.y, '#06b6d4', 25);
+      }
+
+      updatePlayerVitalsUI();
+
+      if (player.hp <= 0) {
+        killPlayer();
+      }
+    }
+
+    function killPlayer() {
+      player.isDead = true;
+      player.lives = Math.max(0, player.lives - 1);
+      player.respawnTimer = 180; // 3 seconds
+
+      // Drop crate
+      if (player.carriedBox) {
+        player.carriedBox.isCarried = false;
+        player.carriedBox.x = player.x;
+        player.carriedBox.y = player.y;
+        player.carriedBox = null;
+      }
+
+      document.getElementById('respawn-banner').classList.add('active');
+      createBurstParticles(player.x, player.y, '#ef4444', 35);
+    }
+
+    function respawnPlayer() {
+      player.isDead = false;
+      player.hp = player.maxHp;
+      player.x = 75;
+      player.y = 110;
+      player.vx = 0;
+      player.vy = 0;
+      player.emergencyBoostTriggered = false;
+      document.getElementById('respawn-banner').classList.remove('active');
+      updatePlayerVitalsUI();
+    }
+
+    /* ==========================================================================
+       MAIN UPDATE ENGINE
+       ========================================================================== */
+    function update(dt) {
+      // Respawn timer
+      if (player.isDead) {
+        player.respawnTimer--;
+        document.getElementById('respawn-countdown').textContent = Math.ceil(player.respawnTimer / 60);
+        if (player.respawnTimer <= 0) respawnPlayer();
+        return;
+      }
+
+      // Decrement Ability Cooldowns
+      if (player.attackCd > 0) player.attackCd--;
+      if (player.ab1Cd > 0) player.ab1Cd--;
+      if (player.ab2Cd > 0) player.ab2Cd--;
+      if (player.ab3Cd > 0) player.ab3Cd--;
+
+      // Decrement Active Buffs
+      if (player.buffInvis > 0) player.buffInvis--;
+      if (player.buffSpeed > 0) player.buffSpeed--;
+      if (player.buffLastStand > 0) player.buffLastStand--;
+      if (player.buffFlight > 0) player.buffFlight--;
+      if (player.buffRage > 0) player.buffRage--;
+      if (player.buffRally > 0) player.buffRally--;
+      if (player.buffEnergyLink > 0) player.buffEnergyLink--;
+      if (player.healingBeamActive > 0) {
+        player.healingBeamActive--;
+        player.hp = Math.min(player.maxHp, player.hp + 0.5); // Heal over time
+        updatePlayerVitalsUI();
+      }
+
+      // Recovery Fields heal
+      deployedRecoveryFields.forEach(rf => {
+        rf.life--;
+        if (Math.hypot(player.x - rf.x, player.y - rf.y) < rf.r) {
+          player.hp = Math.min(player.maxHp, player.hp + 0.3);
+          updatePlayerVitalsUI();
+        }
+      });
+      deployedRecoveryFields = deployedRecoveryFields.filter(rf => rf.life > 0);
+
+      // Input Movement Calculation
+      let inputX = 0;
+      let inputY = 0;
+      if (keys['KeyW'] || keys['ArrowUp']) inputY -= 1;
+      if (keys['KeyS'] || keys['ArrowDown']) inputY += 1;
+      if (keys['KeyA'] || keys['ArrowLeft']) inputX -= 1;
+      if (keys['KeyD'] || keys['ArrowRight']) inputX += 1;
+
+      if (inputX !== 0 || inputY !== 0) {
+        const len = Math.hypot(inputX, inputY);
+        inputX /= len;
+        inputY /= len;
+      }
+
+      let speed = currentHero.speed;
+      if (player.carriedBox) speed *= 0.8;
+      if (player.buffSpeed > 0) speed *= 1.5;
+      if (player.buffLastStand > 0) speed *= 0.75;
+      if (player.onSpeedStrip) speed *= 1.45;
+
+      const friction = currentBiome.friction;
+      player.vx = player.vx * friction + inputX * speed * (1 - friction);
+      player.vy = player.vy * friction + inputY * speed * (1 - friction);
+
+      const nextX = player.x + player.vx;
+      const nextY = player.y + player.vy;
+
+      // Wall Collisions (Ignored if Wisp is in Flight!)
+      let canX = nextX > 30 && nextX < canvas.width - 30;
+      let canY = nextY > 50 && nextY < canvas.height - 35;
+
+      if (player.buffFlight <= 0) {
+        for (const w of currentBiome.walls) {
+          if (circleRectCollide(nextX, player.y, player.radius, w.x, w.y, w.w, w.h)) canX = false;
+          if (circleRectCollide(player.x, nextY, player.radius, w.x, w.y, w.w, w.h)) canY = false;
+        }
+      }
+
+      if (canX) player.x = nextX; else player.vx = 0;
+      if (canY) player.y = nextY; else player.vy = 0;
+
+      // Update Box Pickup & Delivery
+      updateBoxes();
+
+      // Update Boss & Minions AI
+      updateBossAI();
+      updateMinions();
+
+      // Update Projectiles & Deployed Traps
+      updateProjectiles();
+      updateDeployables();
+
+      // Update Biome Atmospheric Particles
+      updateWeatherParticles();
+
+      // Update HUD Cooldown Overlays
+      updateHudCooldowns();
+    }
+
+    function updateBoxes() {
+      // Pickup box
+      for (const b of boxes) {
+        if (!b.isCarried && !player.carriedBox) {
+          if (Math.hypot(player.x - b.x, player.y - b.y) < player.radius + 16) {
+            b.isCarried = true;
+            player.carriedBox = b;
+            document.getElementById('carried-box-pill').classList.add('active');
+            document.getElementById('carried-box-text').textContent =
+              b.scanned ? (b.type === 'fake' ? '⚠️ HOLDING DECOY BOX' : '★ HOLDING REAL STAR CRATE') : '📦 HOLDING MYSTERY CRATE';
+            createBurstParticles(b.x, b.y, '#f59e0b', 10);
+          }
+        }
+      }
+
+      if (player.carriedBox) {
+        player.carriedBox.x = player.x;
+        player.carriedBox.y = player.y - 12;
+
+        // Delivery base check
+        const del = currentBiome.deliveryZone;
+        if (Math.hypot(player.x - (del.x + del.w / 2), player.y - (del.y + del.h / 2)) < 36) {
+          if (player.carriedBox.type === 'fake') {
+            // Fake box explodes!
+            createBurstParticles(player.x, player.y, '#ef4444', 25);
+            damagePlayer(30);
+            alert("⚠️ The Crate was a Decoy Trap! It exploded!");
+          } else {
+            // Real box delivered!
+            score++;
+            createBurstParticles(player.x, player.y, '#fbbf24', 30);
+            if (score === 1) document.getElementById('star-pill-1').classList.add('filled');
+            if (score >= 2) {
+              document.getElementById('star-pill-2').classList.add('filled');
+              alert("🎉 MISSION COMPLETE! All Star Crates Secured!");
+            }
+          }
+          player.carriedBox.isCarried = false;
+          player.carriedBox.x = -999;
+          player.carriedBox = null;
+          document.getElementById('carried-box-pill').classList.remove('active');
+        }
+      }
+    }
+
+    function updateBossAI() {
+      // Check Target Override (Taunt, Decoy, Hologram, False Signal)
+      let targetEntity = player;
+      if (boss.targetOverrideTimer > 0 && boss.targetOverride) {
+        targetEntity = boss.targetOverride;
+        boss.targetOverrideTimer--;
+      } else {
+        boss.targetOverride = null;
+      }
+
+      // Invisibility breaks target
+      if (targetEntity === player && player.buffInvis > 0) {
+        targetEntity = null;
+      }
+
+      const dist = targetEntity ? Math.hypot(targetEntity.x - boss.x, targetEntity.y - boss.y) : 999;
+      const angle = targetEntity ? Math.atan2(targetEntity.y - boss.y, targetEntity.x - boss.x) : boss.patrolAngle;
+
+      if (boss.state === 'patrol') {
+        boss.patrolAngle += 0.02;
+        const bSpawn = currentBiome.bossSpawn || { x: 648, y: 260 };
+        boss.x = bSpawn.x + Math.cos(boss.patrolAngle) * 45;
+        boss.y = bSpawn.y + Math.sin(boss.patrolAngle) * 25;
+        boss.facing = boss.patrolAngle + Math.PI / 2;
+
+        if (targetEntity && dist < 170) {
+          boss.state = 'telegraph';
+          boss.attackTelegraph.progress = 0;
+          boss.attackTelegraph.angle = angle;
+        }
+      } else if (boss.state === 'telegraph') {
+        boss.facing = angle;
+        boss.attackTelegraph.angle = angle;
+        boss.attackTelegraph.progress += 0.02;
+
+        if (boss.attackTelegraph.progress >= 1.0) {
+          boss.state = 'attack';
+          boss.stateTimer = 20;
+
+          // Strike check
+          if (targetEntity && dist < boss.attackTelegraph.range) {
+            let diff = Math.abs(angle - boss.attackTelegraph.angle);
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            if (Math.abs(diff) < boss.attackTelegraph.spread / 2) {
+              if (targetEntity === player) {
+                damagePlayer(45);
+                player.vx = Math.cos(angle) * 10;
+                player.vy = Math.sin(angle) * 10;
+              } else if (targetEntity.hp) {
+                targetEntity.hp -= 50;
+              }
+            }
+          }
+        }
+      } else if (boss.state === 'attack') {
+        boss.stateTimer--;
+        if (boss.stateTimer <= 0) boss.state = 'patrol';
+      }
+    }
+
+    function updateMinions() {
+      minionGuards.forEach(m => {
+        if (m.hp <= 0) return;
+        m.x += m.vx;
+        if (m.x < m.patrolMinX || m.x > m.patrolMaxX) m.vx *= -1;
+
+        // Attack player if close
+        if (!player.isDead && player.buffInvis <= 0) {
+          if (Math.hypot(player.x - m.x, player.y - m.y) < player.radius + m.radius) {
+            damagePlayer(1); // Rapid tick melee damage
+          }
+        }
+      });
+      minionGuards = minionGuards.filter(m => m.hp > 0);
+    }
+
+    function updateProjectiles() {
+      for (let i = projectiles.length - 1; i >= 0; i--) {
+        const p = projectiles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+
+        // Check Hit Boss
+        if (Math.hypot(boss.x - p.x, boss.y - p.y) < boss.radius + p.r) {
+          damageBoss(p.damage);
+          if (!p.pierce) { projectiles.splice(i, 1); continue; }
+        }
+
+        // Check Hit Minions
+        for (const m of minionGuards) {
+          if (Math.hypot(m.x - p.x, m.y - p.y) < m.radius + p.r) {
+            m.hp -= p.damage;
+            createBurstParticles(m.x, m.y, '#ef4444', 5);
+            if (!p.pierce) { projectiles.splice(i, 1); break; }
+          }
+        }
+
+        // Check Hit Crystal Towers
+        for (const t of crystalTowers) {
+          if (Math.hypot(t.x - p.x, t.y - p.y) < t.r + p.r) {
+            const dmg = p.crystalDmg || p.damage;
+            t.hp -= dmg;
+            createBurstParticles(t.x, t.y, '#06b6d4', 8);
+            if (!p.pierce) { projectiles.splice(i, 1); break; }
+          }
+        }
+
+        if (p.life <= 0) projectiles.splice(i, 1);
+      }
+      crystalTowers = crystalTowers.filter(t => t.hp > 0);
+    }
+
+    function updateDeployables() {
+      // Engineer Turrets
+      deployedTurrets.forEach(tur => {
+        tur.life--;
+        tur.fireCd++;
+        if (tur.fireCd > 45) { // Fire every 0.75s
+          tur.fireCd = 0;
+          // Target boss or minion
+          const target = minionGuards[0] || (Math.hypot(boss.x - tur.x, boss.y - tur.y) < 180 ? boss : null);
+          if (target) {
+            const ang = Math.atan2(target.y - tur.y, target.x - tur.x);
+            projectiles.push({
+              x: tur.x, y: tur.y,
+              vx: Math.cos(ang) * 11, vy: Math.sin(ang) * 11,
+              r: 3.5, damage: 14, life: 25, color: '#f97316'
+            });
+          }
+        }
+      });
+      deployedTurrets = deployedTurrets.filter(t => t.life > 0);
+
+      // Bear Traps
+      deployedTraps.forEach(trap => {
+        if (!trap.active) return;
+        // Boss steps in trap
+        if (Math.hypot(boss.x - trap.x, boss.y - trap.y) < boss.radius + trap.r) {
+          trap.active = false;
+          damageBoss(35);
+          boss.state = 'stun';
+          boss.stateTimer = 150; // Rooted 2.5s
+          createBurstParticles(boss.x, boss.y, '#f97316', 20);
+        }
+      });
+
+      // Hologram Runner
+      if (activeHologram) {
+        activeHologram.x += activeHologram.vx;
+        activeHologram.y += activeHologram.vy;
+        activeHologram.life--;
+        if (activeHologram.life <= 0) activeHologram = null;
+      }
+
+      // Decoy
+      if (activeDecoy) {
+        activeDecoy.life--;
+        if (activeDecoy.life <= 0 || activeDecoy.hp <= 0) activeDecoy = null;
+      }
+
+      // False Signal
+      if (falseSignalPoint) {
+        falseSignalPoint.life--;
+        if (falseSignalPoint.life <= 0) falseSignalPoint = null;
+      }
+    }
+
+    function updateHudCooldowns() {
+      updateSlotCd('slot-attack', 'slot-attack-cd', player.attackCd);
+      updateSlotCd('slot-ab1', 'slot-ab1-cd', player.ab1Cd);
+      updateSlotCd('slot-ab2', 'slot-ab2-cd', player.ab2Cd);
+      updateSlotCd('slot-ab3', 'slot-ab3-cd', player.ab3Cd);
+    }
+
+    function updateSlotCd(slotId, textId, cdFrames) {
+      const slot = document.getElementById(slotId);
+      const txt = document.getElementById(textId);
+      if (cdFrames > 0) {
+        slot.classList.add('cooldown');
+        txt.textContent = (cdFrames / 60).toFixed(1);
+      } else {
+        slot.classList.remove('cooldown');
+      }
+    }
+
+    function updatePlayerVitalsUI() {
+      document.getElementById('hud-hero-hp-bar').style.width = `${(player.hp / player.maxHp) * 100}%`;
+      document.getElementById('hud-hero-hp-text').textContent = `${Math.ceil(player.hp)} / ${player.maxHp}`;
+      document.getElementById('hud-hero-lives').textContent = '❤️'.repeat(player.lives);
+    }
+
+    function circleRectCollide(cx, cy, cr, rx, ry, rw, rh) {
+      const closestX = Math.max(rx, Math.min(cx, rx + rw));
+      const closestY = Math.max(ry, Math.min(cy, ry + rh));
+      const dx = cx - closestX;
+      const dy = cy - closestY;
+      return (dx * dx + dy * dy) < (cr * cr);
+    }
+
+    /* ==========================================================================
+       CANVAS RENDERING (STYLED TOP-DOWN 2.5D AESTHETIC)
+       ========================================================================== */
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // 1. Illustrated Map Artwork / Floor Tiles
+      renderFloor();
+
+      // 2. Terrain Zones & Safe Delivery Base
+      renderSurfaces();
+
+      // 3. Scan Sonar Rings
+      renderScanRings();
+
+      // 4. Deployed Barriers & Recovery Fields
+      renderDeployables();
+
+      // 5. Boss Telegraph Cone
+      if (boss.state === 'telegraph') renderBossTelegraph();
+
+      // 6. Obstacle Walls / Tactical Cover
+      renderWalls();
+
+      // 7. Crystal Spire & Cargo Boxes
+      renderInteractables();
+
+      // 8. Minion Guards & Boss
+      renderEnemies();
+
+      // 9. Player Hero (Unique Visuals & Silhouettes for each of 10 heroes)
+      if (!player.isDead) renderPlayerHero();
+
+      // 10. Projectiles & Slash VFX
+      renderCombatVFX();
+
+      // 11. Biome Ambient Weather & Atmospheric Particles
+      renderWeather();
+    }
+
+    function renderFloor() {
+      const bgImg = MAP_BACKGROUNDS[currentBiomeKey];
+      if (bgImg && bgImg.complete && bgImg.naturalWidth > 0) {
+        ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+      } else {
+        const sz = 44;
+        for (let y = 0; y < canvas.height; y += sz) {
+          for (let x = 0; x < canvas.width; x += sz) {
+            const isEven = (Math.floor(x / sz) + Math.floor(y / sz)) % 2 === 0;
+            ctx.fillStyle = isEven ? currentBiome.floorB : currentBiome.floorA;
+            ctx.fillRect(x, y, sz, sz);
+          }
+        }
+        // Outer Perimeter
+        ctx.fillStyle = currentBiome.wallTop;
+        ctx.fillRect(0, 0, canvas.width, 16);
+        ctx.fillRect(0, canvas.height - 16, canvas.width, 16);
+        ctx.fillRect(0, 0, 16, canvas.height);
+        ctx.fillRect(canvas.width - 16, 0, 16, canvas.height);
+      }
+    }
+
+    function renderSurfaces() {
+      // Speed strips / Energy conduits
+      for (const spd of currentBiome.speedStrips) {
+        ctx.save();
+        ctx.fillStyle = currentBiome.hazard + '33';
+        ctx.fillRect(spd.x, spd.y, spd.w, spd.h);
+        ctx.strokeStyle = currentBiome.hazard;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(spd.x, spd.y, spd.w, spd.h);
+        ctx.restore();
+      }
+
+      // Safe Delivery Zone & Player Spawn Pad
+      const del = currentBiome.deliveryZone;
+      if (del) {
+        ctx.save();
+        const pulse = Math.sin(performance.now() * 0.005) * 0.15 + 0.35;
+        ctx.fillStyle = `rgba(245, 158, 11, ${pulse * 0.35})`;
+        ctx.fillRect(del.x, del.y, del.w, del.h);
+
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 2.5;
+        ctx.setLineDash([6, 6]);
+        ctx.strokeRect(del.x, del.y, del.w, del.h);
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = '#fef08a';
+        ctx.font = 'bold 10px "Fredoka", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = 'rgba(0,0,0,0.85)';
+        ctx.shadowBlur = 4;
+        ctx.fillText('⭐ BASE / DROP ZONE', del.x + del.w / 2, del.y - 6);
+        ctx.restore();
+      }
+    }
+
+    function renderScanRings() {
+      for (let i = scanRings.length - 1; i >= 0; i--) {
+        const s = scanRings[i];
+        s.r += 6;
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.stroke();
+        if (s.r >= s.maxR) scanRings.splice(i, 1);
+      }
+    }
+
+    function renderDeployables() {
+      // Recovery Fields
+      deployedRecoveryFields.forEach(rf => {
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.2)';
+        ctx.beginPath();
+        ctx.arc(rf.x, rf.y, rf.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#10b981';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+
+      // Barrier Walls
+      deployedBarriers.forEach(bw => {
+        ctx.save();
+        ctx.translate(bw.x, bw.y);
+        ctx.rotate(bw.angle);
+        ctx.fillStyle = 'rgba(37, 99, 235, 0.7)';
+        ctx.fillRect(-bw.w / 2, -bw.h / 2, bw.w, bw.h);
+        ctx.strokeStyle = '#93c5fd';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-bw.w / 2, -bw.h / 2, bw.w, bw.h);
+        ctx.restore();
+      });
+
+      // Turrets
+      deployedTurrets.forEach(tur => {
+        ctx.fillStyle = '#f97316';
+        ctx.beginPath();
+        ctx.arc(tur.x, tur.y, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#7c2d12';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+
+      // Traps
+      deployedTraps.forEach(trap => {
+        if (!trap.active) return;
+        ctx.strokeStyle = '#f97316';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(trap.x - 8, trap.y - 8, 16, 16);
+      });
+
+      // False Signal
+      if (falseSignalPoint) {
+        ctx.fillStyle = 'rgba(236, 72, 153, 0.3)';
+        ctx.beginPath();
+        ctx.arc(falseSignalPoint.x, falseSignalPoint.y, 35, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#ec4899';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.font = '16px sans-serif';
+        ctx.fillText('📍', falseSignalPoint.x - 8, falseSignalPoint.y + 6);
+      }
+    }
+
+    function renderWalls() {
+      // Tactical cover collision bounds (soft stylized shadows & highlights)
+      for (const w of currentBiome.walls) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.3)';
+        ctx.fillRect(w.x, w.y, w.w, w.h);
+        ctx.strokeStyle = (currentBiome.accentColor || '#38bdf8') + '77';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(w.x, w.y, w.w, w.h);
+        ctx.restore();
+      }
+    }
+
+    function renderInteractables() {
+      // Crystal Spire Towers
+      crystalTowers.forEach(t => {
+        ctx.save();
+        const pulse = Math.sin(performance.now() * 0.006) * 4;
+        ctx.fillStyle = t.color + '26';
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, t.r + pulse + 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = t.color;
+        ctx.lineWidth = 2.5;
+        ctx.shadowColor = t.color;
+        ctx.shadowBlur = 10;
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 22px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('💎', t.x, t.y - 2);
+
+        // HP bar above tower
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.fillRect(t.x - 24, t.y - 32, 48, 6);
+        ctx.fillStyle = t.color;
+        ctx.fillRect(t.x - 23, t.y - 31, (t.hp / t.maxHp) * 46, 4);
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(t.x - 24, t.y - 32, 48, 6);
+
+        ctx.fillStyle = '#e2e8f0';
+        ctx.font = 'bold 9px "Fredoka", sans-serif';
+        ctx.fillText(t.name || 'CRYSTAL CORE', t.x, t.y - 38);
+        ctx.restore();
+      });
+
+      // Cargo Boxes
+      boxes.forEach(b => {
+        if (b.x < 0 || b.isCarried) return;
+        ctx.save();
+        // Contact Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.beginPath();
+        ctx.ellipse(b.x, b.y + 12, 14, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 3D Box Body
+        ctx.fillStyle = b.type === 'fake' ? '#ea580c' : '#f59e0b';
+        ctx.fillRect(b.x - 14, b.y - 14, 28, 24);
+        ctx.fillStyle = '#fde047';
+        ctx.fillRect(b.x - 14, b.y - 14, 28, 7);
+        ctx.strokeStyle = '#78350f';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(b.x - 14, b.y - 14, 28, 24);
+
+        // Star badge
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('★', b.x, b.y + 4);
+
+        // Scanner Inspection Badges
+        if (b.scanned) {
+          ctx.font = '14px sans-serif';
+          if (b.type === 'fake') {
+            ctx.fillStyle = '#ef4444';
+            ctx.fillText('❌', b.x, b.y - 18);
+          } else {
+            ctx.fillStyle = '#22c55e';
+            ctx.fillText('✅', b.x, b.y - 18);
+          }
+        }
+        if (b.marked) {
+          ctx.fillText('📍', b.x, b.y - 28);
+        }
+        ctx.restore();
+      });
+    }
+
+    /* ==========================================================================
+       BIOME ATMOSPHERIC WEATHER PARTICLES
+       ========================================================================== */
+    let weatherParticles = [];
+
+    function updateWeatherParticles() {
+      const wType = currentBiome.weather || 'dust';
+      if (weatherParticles.length < 50) {
+        weatherParticles.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * canvas.height,
+          vx: (Math.random() - 0.5) * 1.5,
+          vy: Math.random() * 1.5 + 0.5,
+          size: Math.random() * 3 + 1.5,
+          alpha: Math.random() * 0.6 + 0.3,
+          life: Math.random() * 100 + 50
+        });
+      }
+
+      for (let i = weatherParticles.length - 1; i >= 0; i--) {
+        const p = weatherParticles[i];
+        if (wType === 'snow') {
+          p.x += Math.sin(p.life * 0.05) * 0.8 + 0.5;
+          p.y += p.vy * 0.9;
+        } else if (wType === 'magma') {
+          p.x += (Math.random() - 0.5) * 0.8;
+          p.y -= Math.abs(p.vy) * 0.8;
+        } else if (wType === 'cyber') {
+          p.y += (Math.random() - 0.5) * 0.6;
+          p.x += 1.2;
+        } else if (wType === 'rain') {
+          p.x += Math.sin(p.life * 0.03) * 0.6;
+          p.y -= 0.5;
+        } else {
+          p.x += 0.4;
+          p.y += 0.3;
+        }
+
+        p.life--;
+        if (p.x < 0) p.x = canvas.width;
+        if (p.x > canvas.width) p.x = 0;
+        if (p.y < 0) p.y = canvas.height;
+        if (p.y > canvas.height) p.y = 0;
+
+        if (p.life <= 0) {
+          weatherParticles.splice(i, 1);
+        }
+      }
+    }
+
+    function renderWeather() {
+      const wType = currentBiome.weather || 'dust';
+      ctx.save();
+      for (const p of weatherParticles) {
+        if (wType === 'snow') {
+          ctx.fillStyle = `rgba(224, 242, 254, ${p.alpha})`;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (wType === 'magma') {
+          ctx.fillStyle = `rgba(249, 115, 22, ${p.alpha})`;
+          ctx.shadowColor = '#f97316';
+          ctx.shadowBlur = 6;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size * 0.9, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (wType === 'cyber') {
+          ctx.fillStyle = p.life % 2 === 0 ? `rgba(6, 182, 212, ${p.alpha})` : `rgba(192, 132, 252, ${p.alpha})`;
+          ctx.fillRect(p.x, p.y, p.size * 1.5, p.size * 0.8);
+        } else if (wType === 'rain') {
+          ctx.fillStyle = `rgba(16, 185, 129, ${p.alpha})`;
+          ctx.shadowColor = '#10b981';
+          ctx.shadowBlur = 4;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size * 1.1, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillStyle = `rgba(254, 240, 138, ${p.alpha * 0.5})`;
+          ctx.fillRect(p.x, p.y, p.size, p.size);
+        }
+      }
+      ctx.restore();
+    }
+
+    function renderEnemies() {
+      // Minions
+      minionGuards.forEach(m => {
+        ctx.fillStyle = '#991b1b';
+        ctx.beginPath();
+        ctx.arc(m.x, m.y, m.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#f87171';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      });
+
+      // Active Boss Visual Asset Rendering
+      renderActiveBoss();
+    }
+
+    function renderActiveBoss() {
+      const bossData = BOSS_REGISTRY[currentBiome.bossId || 'gorog'];
+      if (!bossData) return;
+
+      const sprite = BOSS_SPRITES[bossData.id];
+
+      ctx.save();
+
+      // Boss Danger Perimeter & Soft Ground Shadow
+      ctx.save();
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+      ctx.beginPath();
+      ctx.ellipse(boss.x, boss.y + 14, bossData.radius * 1.1, bossData.radius * 0.55, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Pulsing Danger Ring when telegraphing or enraging
+      ctx.strokeStyle = boss.state === 'telegraph' ? '#ef4444' : bossData.accent;
+      ctx.lineWidth = boss.state === 'telegraph' ? 3.5 : 2;
+      ctx.shadowColor = boss.state === 'telegraph' ? 'rgba(239, 68, 68, 0.8)' : bossData.glow;
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.ellipse(boss.x, boss.y + 14, bossData.radius * 1.25, bossData.radius * 0.65, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+
+      // Walk bobbing animation
+      let bossBob = 0;
+      if (boss.state === 'patrol' || boss.state === 'investigate') {
+        bossBob = Math.sin(performance.now() * 0.008) * 3;
+      } else if (boss.state === 'telegraph') {
+        bossBob = (Math.random() - 0.5) * 2; // Tremble before strike
+      }
+
+      // Render 3D Stylized Boss Asset Sprite
+      if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+        ctx.save();
+        ctx.translate(boss.x, boss.y + bossBob);
+
+        // Direction facing flip
+        const isFacingLeft = Math.cos(boss.facing) < -0.05;
+        if (isFacingLeft) {
+          ctx.scale(-1, 1);
+        }
+
+        const renderHeight = bossData.renderScale;
+        const aspect = sprite.naturalWidth / sprite.naturalHeight;
+        const renderWidth = renderHeight * aspect;
+
+        // Position boss so feet anchor on the shadow ellipse
+        ctx.drawImage(
+          sprite,
+          -renderWidth / 2,
+          16 - renderHeight,
+          renderWidth,
+          renderHeight
+        );
+
+        ctx.restore();
+      } else {
+        // Fallback procedural
+        ctx.fillStyle = bossData.accent;
+        ctx.beginPath();
+        ctx.arc(boss.x, boss.y, boss.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+
+      // Overhead Status Indicators
+      if (boss.state === 'telegraph') {
+        ctx.font = 'bold 18px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('⚠️', boss.x, boss.y - bossData.renderScale + 8);
+      } else if (boss.state === 'stun') {
+        ctx.fillStyle = '#facc15';
+        ctx.font = 'bold 12px "Fredoka", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = 'rgba(0,0,0,0.8)';
+        ctx.shadowBlur = 4;
+        ctx.fillText('💫 STUNNED', boss.x, boss.y - bossData.renderScale + 8);
+      }
+
+      ctx.restore();
+    }
+
+    function renderBossTelegraph() {
+      const cone = boss.attackTelegraph;
+      ctx.save();
+      ctx.translate(boss.x, boss.y);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, cone.range, cone.angle - cone.spread / 2, cone.angle + cone.spread / 2);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.2)';
+      ctx.fill();
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, cone.range * cone.progress, cone.angle - cone.spread / 2, cone.angle + cone.spread / 2);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.5)';
+      ctx.fill();
+      ctx.restore();
+    }
+
+    /* Renders the Active Hero with Game-Ready 3D Stylized Visual Assets */
+    function renderPlayerHero() {
+      ctx.save();
+
+      // Invisibility alpha
+      if (player.buffInvis > 0) ctx.globalAlpha = 0.28;
+
+      // Contact Ring / Team Identifier beneath hero
+      ctx.strokeStyle = currentHero.accent;
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = currentHero.glow;
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.ellipse(player.x, player.y + 11, 16, 7, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Aerial flight elevation for Wisp [Q]
+      let elevationY = 0;
+      if (player.isFlying) {
+        elevationY = -14 + Math.sin(performance.now() * 0.008) * 3;
+        // Cast soft drop shadow on ground while airborne
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+        ctx.beginPath();
+        ctx.ellipse(player.x, player.y + 11, 12, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Smooth walk bobbing
+      let walkBob = 0;
+      const isMoving = Math.abs(player.vx) > 0.1 || Math.abs(player.vy) > 0.1;
+      if (isMoving) {
+        walkBob = Math.sin(performance.now() * 0.016) * 2;
+      }
+
+      // Active Hero High-Definition Sprite Asset
+      const sprite = HERO_SPRITES[currentHero.id];
+      if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+        ctx.save();
+        ctx.translate(player.x, player.y + elevationY + walkBob);
+
+        // Facing direction flip: flip horizontally when moving/aiming left
+        const isFacingLeft = Math.cos(player.facing) < -0.1;
+        if (isFacingLeft) {
+          ctx.scale(-1, 1);
+        }
+
+        // Render at top-down gameplay scale: Height = 56px (clean 64px gameplay scale)
+        const renderHeight = 56;
+        const aspect = sprite.naturalWidth / sprite.naturalHeight;
+        const renderWidth = renderHeight * aspect;
+
+        // Draw character asset with ground contact at +12
+        ctx.drawImage(
+          sprite,
+          -renderWidth / 2,
+          12 - renderHeight,
+          renderWidth,
+          renderHeight
+        );
+
+        ctx.restore();
+      } else {
+        // Fallback procedural rendering while assets load
+        ctx.fillStyle = currentHero.accent;
+        ctx.beginPath();
+        ctx.arc(player.x, player.y + elevationY, player.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      // Hero Active Gameplay VFX Auras (Last Stand, Blood Rage, Energy Shield)
+      renderHeroAuras(elevationY);
+
+      // Carried Box (rendered bobbing dynamically above hero)
+      if (player.carriedBox) {
+        const boxBob = walkBob;
+        ctx.fillStyle = '#f59e0b';
+        ctx.fillRect(player.x - 11, player.y + elevationY - 46 + boxBob, 22, 22);
+        ctx.strokeStyle = '#78350f';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(player.x - 11, player.y + elevationY - 46 + boxBob, 22, 22);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.fillText('★', player.x - 5, player.y + elevationY - 31 + boxBob);
+      }
+
+      ctx.restore();
+    }
+
+    function renderHeroAuras(elevationY = 0) {
+      // Guardian Last Stand blue forcefield dome
+      if (player.buffDmgResist > 0) {
+        ctx.save();
+        ctx.strokeStyle = '#60a5fa';
+        ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(player.x, player.y + elevationY - 12, 28, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Berserker Blood Rage fire flames
+      if (player.buffRage > 0) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.4)';
+        for (let i = 0; i < 3; i++) {
+          const fx = player.x + (Math.random() - 0.5) * 24;
+          const fy = player.y + elevationY - Math.random() * 20;
+          ctx.beginPath();
+          ctx.arc(fx, fy, 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      // Aegis Hexagonal Prism Orbit
+      if (currentHero.id === 'aegis') {
+        const t = performance.now() * 0.003;
+        ctx.save();
+        ctx.fillStyle = '#93c5fd';
+        ctx.shadowColor = '#60a5fa';
+        ctx.shadowBlur = 6;
+        for (let a = 0; a < 2; a++) {
+          const ox = player.x + Math.cos(t + a * Math.PI) * 24;
+          const oy = player.y + elevationY - 10 + Math.sin(t + a * Math.PI) * 12;
+          ctx.fillRect(ox - 3, oy - 3, 6, 6);
+        }
+        ctx.restore();
+      }
+
+      // Phantom Invisibility Shimmer
+      if (player.buffInvis > 0) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(168, 85, 247, 0.4)';
+        ctx.beginPath();
+        ctx.arc(player.x + (Math.random() - 0.5) * 16, player.y + elevationY - 10, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    function renderCombatVFX() {
+      // Projectiles
+      projectiles.forEach(p => {
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+        if (p.life <= 0) particles.splice(i, 1);
+      }
+    }
+
+    function createSlashEffect(x, y, facing, dist, color) {
+      createBurstParticles(x + Math.cos(facing) * dist * 0.6, y + Math.sin(facing) * dist * 0.6, color, 8);
+    }
+
+    function createBurstParticles(x, y, color, count) {
+      for (let i = 0; i < count; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const spd = Math.random() * 4 + 1.5;
+        particles.push({
+          x: x, y: y,
+          vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
+          r: Math.random() * 4 + 2, color: color, life: 25
+        });
+      }
+    }
+
+    /* ==========================================================================
+       9. SOUND-READY WEB AUDIO SYNTHESIZER
+       ========================================================================== */
+    let audioCtx = null;
+    function getAudioContext() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) audioCtx = new AudioContextClass();
+      }
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      return audioCtx;
+    }
+
+    function playUISound(type) {
+      try {
+        const ctx = getAudioContext();
+        if (!ctx) return;
+        const now = ctx.currentTime;
+
+        if (type === 'hover') {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(650, now);
+          osc.frequency.exponentialRampToValueAtTime(850, now + 0.04);
+          gain.gain.setValueAtTime(0.05, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.045);
+        } else if (type === 'select') {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(440, now);
+          osc.frequency.exponentialRampToValueAtTime(740, now + 0.12);
+          gain.gain.setValueAtTime(0.12, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.13);
+        } else if (type === 'lock') {
+          const osc1 = ctx.createOscillator();
+          const osc2 = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc1.type = 'sawtooth';
+          osc2.type = 'sine';
+          osc1.frequency.setValueAtTime(140, now);
+          osc1.frequency.exponentialRampToValueAtTime(60, now + 0.25);
+          osc2.frequency.setValueAtTime(554.37, now);
+          osc2.frequency.exponentialRampToValueAtTime(880, now + 0.25);
+          gain.gain.setValueAtTime(0.18, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+          osc1.connect(gain);
+          osc2.connect(gain);
+          gain.connect(ctx.destination);
+          osc1.start(now);
+          osc2.start(now);
+          osc1.stop(now + 0.3);
+          osc2.stop(now + 0.3);
+        } else if (type === 'tick') {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(1020, now);
+          gain.gain.setValueAtTime(0.04, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.025);
+        } else if (type === 'reveal') {
+          const osc = ctx.createOscillator();
+          const sub = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          sub.type = 'sine';
+          osc.frequency.setValueAtTime(330, now);
+          osc.frequency.exponentialRampToValueAtTime(659.25, now + 0.45);
+          sub.frequency.setValueAtTime(110, now);
+          sub.frequency.exponentialRampToValueAtTime(55, now + 0.45);
+          gain.gain.setValueAtTime(0.2, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+          osc.connect(gain);
+          sub.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          sub.start(now);
+          osc.stop(now + 0.52);
+          sub.stop(now + 0.52);
+        }
+      } catch (err) {
+        // Audio safely ignored
+      }
+    }
+
+    /* ==========================================================================
+       10. SQUAD DRAFT & TEAM ROSTER STATE
+       ========================================================================== */
+    const SQUAD = [
+      { id: 1, name: "YOU (P1)", isYou: true, status: "CHOOSING", hero: HEROES[0] },
+      { id: 2, name: "Operative Jax", isYou: false, status: "LOCKED", hero: HEROES[2] }, // Striker (Hero 03)
+      { id: 3, name: "Dr. Maya", isYou: false, status: "LOCKED", hero: HEROES[5] },      // Medic (Hero 06)
+      { id: 4, name: "Recon Fox", isYou: false, status: "CHOOSING", hero: null, autoPickHero: HEROES[8], autoPickTime: 16 }, // Berserker
+      { id: 5, name: "Volt Unit", isYou: false, status: "CHOOSING", hero: null, autoPickHero: HEROES[3], autoPickTime: 9 }   // Engineer
+    ];
+
+    let draftSelectedHero = HEROES[0];
+    let draftTimerSeconds = 25;
+    let draftTimerInterval = null;
+
+    /* 5 Biome Map Data for Randomizer */
+    const MAP_REGISTRY = [
+      { key: 'warehouse', name: 'WAREHOUSE', theme: 'HEAVY INDUSTRIAL CARGO FACILITY', boss: 'GOROG (THE BRUTE)', event: 'CRANE SURGE', accent: '#3b82f6', glow: 'rgba(59,130,246,0.5)', img: 'assets/maps/map_01_warehouse.png' },
+      { key: 'glacier', name: 'GLACIER', theme: 'CRYO RESEARCH ARCTIC SPIRES', boss: 'FROSTHORN (CRYO GOLEM)', event: '❄️ BLIZZARD SLOWDOWN', accent: '#06b6d4', glow: 'rgba(6,182,212,0.5)', img: 'assets/maps/map_02_glacier.png' },
+      { key: 'crucible', name: 'CRUCIBLE', theme: 'VOLCANIC FOUNDRY & MOLTEN CRATERS', boss: 'INFERNO (MAGMA TITAN)', event: '🌋 MAGMA OVERDRIVE (+40% DMG)', accent: '#f97316', glow: 'rgba(249,115,22,0.5)', img: 'assets/maps/map_03_crucible.png' },
+      { key: 'cyber', name: 'CYBER', theme: 'NEON METROPOLIS ROOFTOP NETWORK', boss: 'VEX (SYNTH EMPEROR)', event: '⚡ GRID OVERLOAD (HASTE)', accent: '#a855f7', glow: 'rgba(168,85,247,0.5)', img: 'assets/maps/map_04_cyber.png' },
+      { key: 'jungle', name: 'JUNGLE', theme: 'ANCIENT BIO-OVERGROWN RUINS', boss: 'MOTHER (SWARM QUEEN)', event: '🌿 SPORE BLOOM (+12 HP/S)', accent: '#10b981', glow: 'rgba(16,185,129,0.5)', img: 'assets/maps/map_05_jungle.png' }
+    ];
+
+    /* ==========================================================================
+       11. HERO DRAFT SCREEN CONTROLLER
+       ========================================================================== */
+    function initHeroDraftScreen() {
+      renderTeamSquadBar();
+      renderHeroRoster();
+      updateHeroPreview(draftSelectedHero);
+      startDraftCountdown();
+    }
+
+    function renderTeamSquadBar() {
+      const container = document.getElementById('team-squad-bar');
+      if (!container) return;
+      container.innerHTML = '';
+
+      SQUAD.forEach(member => {
+        const slot = document.createElement('div');
+        slot.className = `team-slot ${member.isYou ? 'is-you' : ''} ${member.status === 'READY' || member.status === 'LOCKED' ? 'locked' : ''}`;
+        slot.id = `squad-slot-${member.id}`;
+
+        const hero = member.hero;
+        const avatarSrc = hero ? `assets/heroes/hero_${hero.num}_avatar.png` : '';
+        const heroName = hero ? `${hero.num} • ${hero.name}` : 'Selecting...';
+        const statusLabel = member.status === 'READY' || member.status === 'LOCKED' ? 'READY' : 'CHOOSING';
+
+        slot.innerHTML = `
+          <div class="team-slot-avatar" style="border-color: ${hero ? hero.accent : 'var(--border-default)'};">
+            ${hero ? `<img src="${avatarSrc}" alt="${hero.name}" />` : `<span style="font-size:16px; opacity:0.5;">?</span>`}
+          </div>
+          <div class="team-slot-info">
+            <div class="team-slot-player">
+              <span>${member.name}</span>
+              ${member.isYou ? `<span class="player-tag-you">YOU</span>` : ''}
+            </div>
+            <div class="team-slot-hero" style="color: ${hero ? hero.accent : 'var(--text-muted)'};">${heroName}</div>
+            <div class="team-slot-status ${statusLabel === 'READY' ? 'ready' : ''}">${statusLabel}</div>
+          </div>
+        `;
+        container.appendChild(slot);
+      });
+    }
+
+    function renderHeroRoster() {
+      const grid = document.getElementById('hero-roster-grid');
+      if (!grid) return;
+      grid.innerHTML = '';
+
+      HEROES.forEach(h => {
+        // Check if hero is taken by teammate (P2, P3, P4, P5)
+        const takenByMember = SQUAD.find(m => !m.isYou && m.hero && m.hero.id === h.id);
+        const isTaken = Boolean(takenByMember);
+        const isSelectedByYou = SQUAD[0].hero && SQUAD[0].hero.id === h.id;
+
+        const card = document.createElement('div');
+        card.className = `hero-card ${isSelectedByYou ? 'is-selected' : ''} ${isTaken ? 'is-taken' : ''}`;
+        card.style.setProperty('--hero-accent', h.accent);
+        card.style.setProperty('--hero-glow', h.glow);
+
+        card.innerHTML = `
+          <div class="card-backdrop-glow"></div>
+          <div class="card-art-wrap">
+            <img src="assets/heroes/hero_${h.num}.png" alt="${h.name} Artwork" onerror="this.src='assets/heroes/hero_${h.num}_avatar.png'" />
+          </div>
+          <div class="hero-card-meta">
+            <div class="hero-card-number">${h.num}</div>
+            <div class="hero-card-name">${h.name}</div>
+            <div class="hero-card-role" style="color: ${h.accent};">${h.title}</div>
+            <div class="hero-card-icons">
+              <span title="Attack">${h.attack.icon}</span>
+              <span title="${h.ab1.name}">${h.ab1.icon}</span>
+              <span title="${h.ab2.name}">${h.ab2.icon}</span>
+              <span title="${h.ab3.name}">${h.ab3.icon}</span>
+            </div>
+          </div>
+          ${isTaken ? `
+            <div class="card-taken-overlay">
+              <div class="taken-badge">🔒 TAKEN</div>
+              <div class="taken-player-label">${takenByMember.name}</div>
+            </div>
+          ` : ''}
+        `;
+
+        // Card Hover: Light sweep + Parallax lift + Preview update
+        card.addEventListener('mouseenter', () => {
+          playUISound('hover');
+          updateHeroPreview(h, isTaken, takenByMember ? takenByMember.name : null);
+        });
+
+        // Card Click: Select hero for YOU (Player 1)
+        card.addEventListener('click', () => {
+          if (isTaken) return;
+          selectHeroForPlayer(h);
+        });
+
+        grid.appendChild(card);
+      });
+    }
+
+    function selectHeroForPlayer(h) {
+      playUISound('select');
+      draftSelectedHero = h;
+      SQUAD[0].hero = h;
+      SQUAD[0].status = "READY";
+
+      // Trigger pop animation on squad slot
+      const p1Slot = document.getElementById('squad-slot-1');
+      if (p1Slot) {
+        p1Slot.classList.remove('slot-pop-animation');
+        void p1Slot.offsetWidth; // reflow
+        p1Slot.classList.add('slot-pop-animation');
+      }
+
+      renderTeamSquadBar();
+      renderHeroRoster();
+      updateHeroPreview(h, false, null);
+    }
+
+    function updateHeroPreview(h, isTaken = false, takenBy = null) {
+      const artImg = document.getElementById('preview-hero-art');
+      if (artImg) artImg.src = `assets/heroes/hero_${h.num}.png`;
+
+      const artBox = document.getElementById('preview-art-box');
+      if (artBox) {
+        artBox.style.borderColor = h.accent;
+        artBox.style.boxShadow = `0 10px 30px ${h.glow}`;
+      }
+
+      const glow = document.getElementById('preview-glow');
+      if (glow) glow.style.background = `radial-gradient(circle, ${h.glow} 0%, transparent 70%)`;
+
+      document.getElementById('preview-hero-tag').textContent = `${h.num} • ${h.title.toUpperCase()}`;
+      document.getElementById('preview-hero-tag').style.color = h.accent;
+      document.getElementById('preview-hero-name').textContent = h.name.toUpperCase();
+      document.getElementById('preview-hero-fantasy').textContent = h.fantasy;
+
+      // Stats
+      document.getElementById('stat-hp').textContent = `${h.maxHp} HP`;
+      document.getElementById('stat-dmg').textContent = `${h.damage} PWR`;
+      document.getElementById('stat-spd').textContent = `${h.speed} SPD`;
+      document.getElementById('stat-role').textContent = h.title.toUpperCase();
+
+      // Ability Cards (Tray of 4)
+      const abList = document.getElementById('preview-abilities-list');
+      if (abList) {
+        abList.innerHTML = `
+          <div class="ability-card">
+            <div class="ability-card-icon" style="color: ${h.accent};">${h.attack.icon}</div>
+            <div class="ability-card-body">
+              <div class="ability-card-header">
+                <span class="ability-card-title">${h.attack.name}</span>
+                <span class="ability-key-pill">L-Click / F</span>
+              </div>
+              <div class="ability-card-desc">${h.attack.desc}</div>
+            </div>
+          </div>
+          <div class="ability-card">
+            <div class="ability-card-icon" style="color: ${h.accent};">${h.ab1.icon}</div>
+            <div class="ability-card-body">
+              <div class="ability-card-header">
+                <span class="ability-card-title">${h.ab1.name}</span>
+                <span class="ability-key-pill">Q</span>
+              </div>
+              <div class="ability-card-desc">${h.ab1.desc}</div>
+            </div>
+          </div>
+          <div class="ability-card">
+            <div class="ability-card-icon" style="color: ${h.accent};">${h.ab2.icon}</div>
+            <div class="ability-card-body">
+              <div class="ability-card-header">
+                <span class="ability-card-title">${h.ab2.name}</span>
+                <span class="ability-key-pill">E</span>
+              </div>
+              <div class="ability-card-desc">${h.ab2.desc}</div>
+            </div>
+          </div>
+          <div class="ability-card">
+            <div class="ability-card-icon" style="color: ${h.accent};">${h.ab3.icon}</div>
+            <div class="ability-card-body">
+              <div class="ability-card-header">
+                <span class="ability-card-title">${h.ab3.name}</span>
+                <span class="ability-key-pill">Space</span>
+              </div>
+              <div class="ability-card-desc">${h.ab3.desc}</div>
+            </div>
+          </div>
+        `;
+      }
+
+      // Lock-In Button State
+      const lockBtn = document.getElementById('btn-lock-hero');
+      if (lockBtn) {
+        if (isTaken) {
+          lockBtn.disabled = true;
+          lockBtn.innerHTML = `<span>🔒</span> LOCKED BY ${takenBy.toUpperCase()}`;
+        } else {
+          lockBtn.disabled = false;
+          lockBtn.innerHTML = `<span>🔒</span> LOCK IN [ ${h.name.toUpperCase()} ] & ROLL MAP`;
+        }
+      }
+    }
+
+    function startDraftCountdown() {
+      if (draftTimerInterval) clearInterval(draftTimerInterval);
+      draftTimerSeconds = 25;
+
+      draftTimerInterval = setInterval(() => {
+        draftTimerSeconds--;
+        const timerEl = document.getElementById('draft-timer-num');
+        if (timerEl) timerEl.textContent = `${draftTimerSeconds}s`;
+
+        // Teammates pick during countdown
+        SQUAD.forEach(member => {
+          if (!member.isYou && member.status === "CHOOSING" && member.autoPickTime && draftTimerSeconds <= member.autoPickTime) {
+            member.hero = member.autoPickHero;
+            member.status = "LOCKED";
+            renderTeamSquadBar();
+            renderHeroRoster();
+          }
+        });
+
+        if (draftTimerSeconds <= 0) {
+          clearInterval(draftTimerInterval);
+          lockInHeroAndRollMap();
+        }
+      }, 1000);
+    }
+
+    function lockInHeroAndRollMap() {
+      if (draftTimerInterval) clearInterval(draftTimerInterval);
+      playUISound('lock');
+      SQUAD[0].status = "READY";
+      renderTeamSquadBar();
+
+      // Screen transition: Hero Select Screen -> Tactical Map Randomizer
+      setTimeout(() => {
+        toggleHeroDraftScreen(false);
+        startTacticalMapRandomizer();
+      }, 350);
+    }
+
+    function toggleHeroDraftScreen(show) {
+      const scr = document.getElementById('screen-hero-select');
+      if (scr) scr.classList.toggle('hidden', !show);
+    }
+
+    /* ==========================================================================
+       12. TACTICAL MAP RANDOMIZER & REVEAL ENGINE
+       ========================================================================== */
+    function startTacticalMapRandomizer() {
+      const randomizerScreen = document.getElementById('screen-map-randomizer');
+      const cardsArray = document.getElementById('map-cards-array');
+      const laser = document.getElementById('scanner-laser');
+      const bloom = document.getElementById('randomizer-bloom');
+      const revealBanner = document.getElementById('randomizer-reveal-banner');
+
+      randomizerScreen.classList.remove('hidden');
+      revealBanner.classList.remove('active');
+      bloom.style.background = 'transparent';
+
+      // Pick TRUE random map
+      const targetMapIndex = Math.floor(Math.random() * MAP_REGISTRY.length);
+      const targetMap = MAP_REGISTRY[targetMapIndex];
+
+      // Populate 5 Map Cards
+      cardsArray.querySelectorAll('.map-random-card').forEach(c => c.remove());
+      MAP_REGISTRY.forEach((m, idx) => {
+        const card = document.createElement('div');
+        card.className = 'map-random-card';
+        card.id = `map-random-card-${idx}`;
+        card.style.setProperty('--map-accent', m.accent);
+        card.style.setProperty('--map-glow', m.glow);
+
+        card.innerHTML = `
+          <div class="map-card-thumb">
+            <img src="${m.img}" alt="${m.name} Preview" />
+          </div>
+          <div class="map-card-meta">
+            <div class="map-card-badge">${m.key.toUpperCase()} BIOME</div>
+            <div class="map-card-name">${m.name}</div>
+            <div class="map-card-boss-tag">BOSS: ${m.boss}</div>
+            <div class="map-card-event-pill"><span>⚡</span> ${m.event}</div>
+          </div>
+        `;
+        cardsArray.appendChild(card);
+      });
+
+      // Decelerating Scan Sequence (FAST -> MEDIUM -> SLOW -> FINAL LOCK)
+      laser.classList.add('active');
+      let currentCardIndex = 0;
+      let stepCount = 0;
+      const totalSteps = 22 + targetMapIndex; // lands exactly on targetMapIndex!
+
+      function getStepDelay(step) {
+        if (step < 12) return 70;         // Fast
+        if (step < 18) return 150;        // Medium
+        if (step < totalSteps - 2) return 280; // Slow
+        return 440;                       // Final suspense steps
+      }
+
+      function runScanStep() {
+        // Clear previous scanning cards
+        cardsArray.querySelectorAll('.map-random-card').forEach(c => c.classList.remove('scanning'));
+
+        currentCardIndex = stepCount % MAP_REGISTRY.length;
+        const activeCard = document.getElementById(`map-random-card-${currentCardIndex}`);
+        if (activeCard) {
+          activeCard.classList.add('scanning');
+          // Position laser bar over active card
+          laser.style.left = `${activeCard.offsetLeft + activeCard.offsetWidth / 2}px`;
+        }
+
+        playUISound('tick');
+        stepCount++;
+
+        if (stepCount < totalSteps) {
+          setTimeout(runScanStep, getStepDelay(stepCount));
+        } else {
+          // FINAL MAP REVEAL!
+          laser.classList.remove('active');
+          const winnerCard = document.getElementById(`map-random-card-${targetMapIndex}`);
+          if (winnerCard) {
+            winnerCard.classList.remove('scanning');
+            winnerCard.classList.add('locked-winner');
+          }
+
+          // Dim others
+          cardsArray.querySelectorAll('.map-random-card').forEach((c, idx) => {
+            if (idx !== targetMapIndex) c.style.opacity = '0.28';
+          });
+
+          // Biome Bloom
+          bloom.style.background = `radial-gradient(circle at 50% 50%, ${targetMap.glow} 0%, transparent 75%)`;
+          playUISound('reveal');
+
+          // Reveal Announcement Banner
+          document.getElementById('reveal-title').textContent = `TARGET BIOME LOCKED: [ ${targetMap.name} ]`;
+          document.getElementById('reveal-title').style.color = targetMap.accent;
+          document.getElementById('reveal-sub').textContent = `${targetMap.theme} • RESIDENT BOSS: ${targetMap.boss}`;
+          document.getElementById('reveal-status').textContent = `DEPLOYING SQUAD INTO THE ARENA IN 1.2s...`;
+          revealBanner.classList.add('active');
+
+          // Transition to gameplay match!
+          setTimeout(() => {
+            randomizerScreen.classList.add('hidden');
+            // Update active map tabs
+            document.querySelectorAll('.map-tab-btn').forEach(btn => {
+              btn.classList.toggle('active', btn.dataset.map === targetMap.key);
+            });
+            switchBiome(targetMap.key);
+            applySelectedHero(draftSelectedHero);
+            player.x = 75;
+            player.y = 265;
+          }, 1400);
+        }
+      }
+
+      setTimeout(runScanStep, 200);
+    }
+
+    function applySelectedHero(hero) {
+      currentHero = hero;
+      player.maxHp = hero.maxHp;
+      player.hp = hero.maxHp;
+
+      // Update In-Game HUD Vitals with official character asset
+      const avatarImg = document.getElementById('hud-hero-avatar-img');
+      if (avatarImg) avatarImg.src = `assets/heroes/hero_${hero.num}_avatar.png`;
+      const avatarThumb = document.getElementById('hud-hero-avatar-thumb');
+      if (avatarThumb) avatarThumb.style.borderColor = hero.accent;
+      document.getElementById('hud-hero-name').textContent = hero.name;
+      updatePlayerVitalsUI();
+
+      // Update Bottom Ability Slots
+      document.getElementById('slot-attack-icon').textContent = hero.attack.icon;
+      document.getElementById('slot-attack-name').textContent = hero.attack.name;
+
+      document.getElementById('slot-ab1-icon').textContent = hero.ab1.icon;
+      document.getElementById('slot-ab1-name').textContent = hero.ab1.name;
+
+      document.getElementById('slot-ab2-icon').textContent = hero.ab2.icon;
+      document.getElementById('slot-ab2-name').textContent = hero.ab2.name;
+
+      document.getElementById('slot-ab3-icon').textContent = hero.ab3.icon;
+      document.getElementById('slot-ab3-name').textContent = hero.ab3.name;
+    }
+
+    // Interactive Button Listeners
+    document.getElementById('btn-open-hero-select').addEventListener('click', () => {
+      toggleHeroDraftScreen(true);
+      startDraftCountdown();
+    });
+
+    document.getElementById('btn-close-draft').addEventListener('click', () => {
+      toggleHeroDraftScreen(false);
+    });
+
+    document.getElementById('btn-lock-hero').addEventListener('click', () => {
+      lockInHeroAndRollMap();
+    });
+
+    document.getElementById('btn-draft-random').addEventListener('click', () => {
+      // Pick random available hero
+      const availableHeroes = HEROES.filter(h => !SQUAD.some(m => !m.isYou && m.hero && m.hero.id === h.id));
+      if (availableHeroes.length > 0) {
+        const randHero = availableHeroes[Math.floor(Math.random() * availableHeroes.length)];
+        selectHeroForPlayer(randHero);
+      }
+    });
+
+    document.getElementById('btn-roll-match').addEventListener('click', () => {
+      startTacticalMapRandomizer();
+    });
+
+    // Biome & Boss Switcher
+    function switchBiome(biomeKey) {
+      currentBiomeKey = biomeKey;
+      currentBiome = BIOMES[currentBiomeKey];
+      const bossData = BOSS_REGISTRY[currentBiome.bossId || 'gorog'];
+      if (bossData) {
+        boss.maxHp = bossData.maxHp;
+        boss.hp = bossData.maxHp;
+        boss.radius = bossData.radius;
+      }
+      const bSpawn = currentBiome.bossSpawn || { x: 648, y: 260 };
+      boss.x = bSpawn.x;
+      boss.y = bSpawn.y;
+      boss.state = 'patrol';
+      boss.stateTimer = 0;
+
+      // Spawn Biome Crystals & Boxes
+      crystalTowers = (currentBiome.crystals || [
+        { id: 1, x: 648, y: 260, hp: 350, maxHp: 350, r: 28, color: '#06b6d4', name: 'ENERGY CORE' }
+      ]).map(c => ({ ...c }));
+
+      boxes = (currentBiome.boxes || [
+        { id: 1, x: 220, y: 155, type: 'real', isCarried: false, scanned: false, marked: false },
+        { id: 2, x: 380, y: 330, type: 'real', isCarried: false, scanned: false, marked: false },
+        { id: 3, x: 530, y: 190, type: 'fake', isCarried: false, scanned: false, marked: false },
+        { id: 4, x: 770, y: 360, type: 'camo', isCarried: false, scanned: false, marked: false }
+      ]).map(b => ({ ...b }));
+
+      weatherParticles = [];
+
+      updateBossHUD();
+    }
+
+    // Map Tabs
+    document.querySelectorAll('.map-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.map-tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        switchBiome(btn.dataset.map);
+        player.x = 75;
+        player.y = 265;
+      });
+    });
+
+    // Biome Event Trigger
+    document.getElementById('btn-force-event').addEventListener('click', () => {
+      triggerBiomeEvent();
+    });
+
+    function triggerBiomeEvent() {
+      const banner = document.getElementById('respawn-banner');
+      const eventTitle = currentBiome.eventName || '⚡ BIOME EVENT';
+      const eventDesc = currentBiome.eventDesc || 'Environmental modifier active!';
+
+      banner.innerHTML = `
+        <div style="font-size: 18px; color: ${currentBiome.accentColor || '#f59e0b'}; font-weight: 800;">${eventTitle}</div>
+        <div style="font-size: 13px; font-weight: 600; margin-top: 6px; color: #fff;">${eventDesc}</div>
+      `;
+      banner.classList.add('active');
+      banner.style.background = 'rgba(15, 23, 42, 0.95)';
+      banner.style.border = `2px solid ${currentBiome.accentColor || '#f59e0b'}`;
+
+      setTimeout(() => {
+        banner.classList.remove('active');
+        banner.style.background = '';
+        banner.style.border = '';
+      }, 3500);
+
+      // Event Burst Particles
+      for (let i = 0; i < 40; i++) {
+        particles.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * canvas.height,
+          vx: (Math.random() - 0.5) * 3,
+          vy: (Math.random() - 0.5) * 3,
+          r: Math.random() * 5 + 2,
+          color: currentBiome.accentColor || '#f59e0b',
+          life: 45
+        });
+      }
+    }
+
+    /* ==========================================================================
+       START GAME ENGINE
+       ========================================================================== */
+    initHeroDraftScreen();
+    applySelectedHero(HEROES[0]); // Start with Guardian
+    switchBiome('warehouse');
+
+    // Keyboard shortcut 'H' to toggle Hero Draft Screen
+    window.addEventListener('keydown', (e) => {
+      if ((e.key === 'h' || e.key === 'H') && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+        const scr = document.getElementById('screen-hero-select');
+        const isHidden = scr.classList.contains('hidden');
+        toggleHeroDraftScreen(isHidden);
+        if (isHidden) startDraftCountdown();
+      }
+    });
+
+    function loop(now) {
+      update(0.016);
+      render();
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
