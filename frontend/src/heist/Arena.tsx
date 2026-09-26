@@ -63,7 +63,7 @@ export function Arena({ net, fx, disabled, controls, overview }: { net: Net; fx:
     };
     const release = () => { keys.clear(); held = false; net.move(0, 0); sent = ''; };
     const keyDown = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.closest('input, textarea, select, button')) return;
+      if ((e.target as HTMLElement)?.closest('input, textarea, select')) return;
       const k = e.key.toLowerCase();
       if ('wasdqerf '.includes(k) || k.startsWith('arrow')) e.preventDefault();
       keys.add(k); sendMove();

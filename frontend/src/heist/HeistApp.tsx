@@ -36,7 +36,9 @@ export default function HeistApp() {
   const generation=useRef(0);
   const recap=useRef(false);
   const seenPhase=useRef<number>(-1);
-  const s=network?.room?.state;
+  const snapshot=network?.room?.state;
+  // Colyseus resolves the seat reservation before its first full state patch.
+  const s=snapshot?.boss && snapshot.director && snapshot.players ? snapshot : undefined;
   const me=s?.players?.get(network?.sessionId??'');
   const players=s?.players?[...s.players.values()]:[];
   const isLobby=!!s&&s.phase===MatchPhase.Lobby;
