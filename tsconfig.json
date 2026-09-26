@@ -1,4 +1,14 @@
 {
   "extends": "./tsconfig.base.json",
-  "include": ["shared/src/**/*.ts", "backend/src/**/*.ts", "frontend/src/**/*.ts"]
+  "compilerOptions": {
+    "verbatimModuleSyntax": false,
+    "noUncheckedIndexedAccess": false,
+    "jsx": "react-jsx"
+  },
+  "include": [
+    "shared/src/**/*.ts",
+    "backend/src/**/*.ts",
+    "frontend/src/**/*.ts",
+    "frontend/src/**/*.tsx"
+  ]
 }

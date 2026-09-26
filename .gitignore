@@ -11,4 +11,5 @@ Thumbs.db
 # deploy artifacts
 redbox-itch.zip
 frontend/dist/
+frontend/public/*.zip
 .vercel
