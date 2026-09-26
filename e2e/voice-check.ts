@@ -16,14 +16,9 @@
 import { writeFileSync } from 'node:fs';
 import { Client } from 'colyseus.js';
 import {
-  PROTOCOL_VERSION, ROOM_NAME, ClientMessage, MatchPhase, PHASE_LABEL,
-  ServerMessage as SharedServerMessage,
+  PROTOCOL_VERSION, ROOM_NAME, ClientMessage, MatchPhase, PHASE_LABEL, ServerMessage,
   type DirectorPayload, type JoinOptions, type MatchState,
 } from '@redbox/shared';
-
-// TODO(voice): delete once shared/src/messages.ts exports ServerMessage.BossVoice /
-// DebriefVoice (parallel track), and import ServerMessage directly.
-const ServerMessage = { ...SharedServerMessage, BossVoice: 'boss_voice', DebriefVoice: 'debrief_voice' } as const;
 
 const raw = (process.env.SERVER ?? 'ws://localhost:2567').replace(/\/+$/, '');
 const wsUrl = raw.replace(/^http/, 'ws');
@@ -42,11 +37,12 @@ const head = (b: Uint8Array) => String.fromCharCode(...b.subarray(0, 4));
 console.log(`voice check against ${wsUrl} (waiting up to ${secs(WAIT_MS)} for a spoken taunt)\n`);
 
 // Informational only: older servers have no "voice" flag, and /health may be unreachable locally.
+// The flag sits with the other AI booleans: { ai: { director, debrief, voice } }.
 try {
   const res = await fetch(`${httpUrl}/health`, { signal: AbortSignal.timeout(5_000) });
-  const body = (await res.json().catch(() => null)) as { voice?: boolean; ai?: Record<string, boolean>; commit?: string } | null;
-  note('/health', `HTTP ${res.status}  voice=${body?.voice ?? '?'}  ai=${JSON.stringify(body?.ai ?? null)}  commit=${body?.commit ?? '?'}`);
-  if (body?.voice === false) note('server reports voice OFF (VOICE_URL / VOICE_TOKEN unset): expect no clips');
+  const body = (await res.json().catch(() => null)) as { ai?: Record<string, boolean>; commit?: string } | null;
+  note('/health', `HTTP ${res.status}  voice=${body?.ai?.voice ?? '?'}  ai=${JSON.stringify(body?.ai ?? null)}  commit=${body?.commit ?? '?'}`);
+  if (body?.ai?.voice === false) note('server reports voice OFF (VOICE_URL / VOICE_TOKEN unset): expect no clips');
   if (body?.ai && body.ai.director === false) note('server reports the AI director OFF: no LLM taunts, so nothing to speak');
 } catch (err) {
   note('/health unreachable', err instanceof Error ? err.message : String(err));

@@ -639,8 +639,10 @@ test('oversized audio is refused without buffering it, whether its length is dec
 test('a real colyseus.js client receives BossVoice and DebriefVoice as Uint8Array', async () => {
   const rooms: HeistRoom[] = [];
   class VoiceRoom extends HeistRoom {
-    override onCreate(options: { roomCode?: string; private?: boolean } = {}) {
-      super.onCreate(options);
+    // HeistRoom.onCreate is async (it draws a free room code, then sets roomId):
+    // it must be awaited, or Colyseus finishes creating the room first.
+    override async onCreate(options: { private?: boolean } = {}) {
+      await super.onCreate(options);
       rooms.push(this);
     }
   }

@@ -9,16 +9,10 @@
 import { Client, Room } from 'colyseus.js';
 import {
   INTERP_DELAY_MS, PROTOCOL_VERSION, ROOM_NAME, normalizeRoomCode, resolveEndpoint,
-  ClientMessage, JoinError, ServerMessage as SharedServerMessage,
+  ClientMessage, JoinError, ServerMessage,
   type ClassId, type DebriefPayload, type DirectorPayload, type FxPayload,
   type JoinErrorCode, type JoinOptions, type MatchEvent, type MatchState, type UseAbilityPayload,
 } from '@redbox/shared';
-
-// TODO(voice): shared/src/messages.ts gains ServerMessage.BossVoice / DebriefVoice in
-// a parallel track. Once it lands, delete this shim and import ServerMessage directly
-// (drop the `as SharedServerMessage` alias). Spread first, so it still compiles
-// after the merge (the reverse order is TS2783 once shared defines the same keys).
-const ServerMessage = { ...SharedServerMessage, BossVoice: 'boss_voice', DebriefVoice: 'debrief_voice' } as const;
 
 /** Waits between reconnect attempts after a dropped connection (the server holds the seat 30 s). */
 const RECONNECT_DELAYS_MS = [500, 1_500, 3_000, 6_000, 10_000];
