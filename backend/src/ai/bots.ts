@@ -10,7 +10,7 @@
 
 import {
   BOTS, BoxState, CRATES, MAP, PLAYER,
-  classOf, isAbilityReady, isCarrying, isClosedCrate,
+  classOf, isAbilityReady, isCarrying, isClosedCrate, tileCentre, toTile,
   type Box, type Creep, type Crystal, type Player, type System, type Vec2, type World,
 } from '@redbox/shared';
 
@@ -35,12 +35,26 @@ const INTERACT_FRAC = 0.8;
 /**
  * Wall-corner unsticking. `w.nextStep` steers the bot's centre, movement moves
  * its body: on a corner the body is blocked while the path field flips between
- * two tiles, so the bot grinds in place forever. Moving this little over
- * UNSTICK_AFTER_MS of steering means wedged; sidestep for UNSTICK_MS.
+ * two tiles, so the bot grinds in place forever: not moving UNSTICK_PROGRESS_PX
+ * within UNSTICK_AFTER_MS means wedged, so sidestep for UNSTICK_MS.
  */
 const UNSTICK_PROGRESS_PX = 8;
 const UNSTICK_AFTER_MS = 400;
 const UNSTICK_MS = 500;
+/**
+ * Oscillating between two tiles still looks like movement, so a second, slower
+ * check gives up on a goal that neither gets closer (GOAL_PROGRESS_PX) nor takes
+ * the bot anywhere new (ROAM_PROGRESS_PX, which a detour around a wall clears)
+ * within GIVE_UP_AFTER_MS.
+ */
+const GOAL_PROGRESS_PX = 8;
+const ROAM_PROGRESS_PX = 150;
+const OSCILLATION_MS = 1_500;
+const GIVE_UP_AFTER_MS = 6_000;
+/** How long a bot ignores a goal it could not reach. */
+const GIVE_UP_COOLDOWN_MS = 15_000;
+/** A retreating bot is safe again once nothing hostile is this close. */
+const RETREAT_SAFE_RADIUS_PX = 400;
 /** How far ahead a sidestep is tested for room. */
 const SIDESTEP_PROBE_PX = PLAYER.RADIUS * 2;
 
@@ -59,11 +73,20 @@ interface Brain {
   goal: Goal;
   nextDecisionAt: number;
   retreating: boolean;
-  /** Where the bot stood when it last made headway, and when that was. */
-  lastPos: Vec2;
+  /** Where the bot was when it last physically moved, for the sidestep timer. */
+  moveAnchor: Vec2;
+  movedAtMs: number;
+  /** Steering target, plus how well the bot is doing at getting there. */
+  steerTarget: Vec2;
+  roamAnchor: Vec2;
+  bestDist: number;
   progressAtMs: number;
   sidestep: Vec2;
   sidestepUntilMs: number;
+  /** Goals this bot failed to reach, by subject id, until the given time. */
+  unreachableUntil: Map<string, number>;
+  /** Set by steering when the current goal has been unreachable for too long. */
+  wedged: boolean;
 }
 
 interface Hostile { id: string; pos: Vec2; }
@@ -76,7 +99,11 @@ export function createBotsSystem(): System {
     if (!b) {
       b = {
         goal: { kind: 'idle' }, nextDecisionAt: 0, retreating: false,
-        lastPos: { x: 0, y: 0 }, progressAtMs: 0, sidestep: { x: 0, y: 0 }, sidestepUntilMs: 0,
+        moveAnchor: { x: NaN, y: NaN }, movedAtMs: 0,
+        steerTarget: { x: NaN, y: NaN }, roamAnchor: { x: NaN, y: NaN },
+        bestDist: Infinity, progressAtMs: 0,
+        sidestep: { x: 0, y: 0 }, sidestepUntilMs: 0,
+        unreachableUntil: new Map(), wedged: false,
       };
       brains.set(id, b);
     }
@@ -98,6 +125,24 @@ export function createBotsSystem(): System {
     if (fits(left)) return left;
     if (fits(right)) return right;
     return left;
+  }
+
+  /**
+   * `nextStep` returns a tile-to-tile direction, which clips corners once the
+   * body is taken into account. When the body does not fit straight ahead, aim
+   * at the centre of the tile the path points at instead: that lines the hero up
+   * with the corridor rather than grinding along its edge.
+   */
+  function aimAround(w: World, p: Player, dir: Vec2): Vec2 {
+    const ahead = { x: p.x + dir.x * SIDESTEP_PROBE_PX, y: p.y + dir.y * SIDESTEP_PROBE_PX };
+    if (bodyClear(w, ahead.x, ahead.y)) return dir;
+    const { tx, ty } = toTile(ahead.x, ahead.y);
+    const c = tileCentre(tx, ty);
+    if (!bodyClear(w, c.x, c.y)) return dir;
+    const dx = c.x - p.x;
+    const dy = c.y - p.y;
+    const len = Math.hypot(dx, dy);
+    return len > 1e-3 ? { x: dx / len, y: dy / len } : dir;
   }
 
   function hostilesNear(w: World, p: Player, radius: number): Hostile[] {
@@ -128,10 +173,20 @@ export function createBotsSystem(): System {
     return w.reachable(p, to);
   }
 
+  function reachableGoal(brain: Brain, w: World, id: string): boolean {
+    const until = brain.unreachableUntil.get(id);
+    if (until === undefined) return true;
+    if (w.now >= until) { brain.unreachableUntil.delete(id); return true; }
+    return false;
+  }
+
   function decide(w: World, p: Player, claimed: Set<string>, brain: Brain): Goal {
     const hpFrac = p.maxHp > 0 ? p.hp / p.maxHp : 1;
-    if (brain.retreating && hpFrac >= RETREAT_RECOVER_HP_FRAC) brain.retreating = false;
-    if (!brain.retreating && hpFrac < RETREAT_HP_FRAC) brain.retreating = true;
+    // Heroes never regenerate, so a retreat that waits for HP would last the
+    // whole wave: being out of danger is enough to go back to work.
+    const threatened = hostilesNear(w, p, RETREAT_SAFE_RADIUS_PX).length > 0;
+    if (brain.retreating && (hpFrac >= RETREAT_RECOVER_HP_FRAC || !threatened)) brain.retreating = false;
+    else if (!brain.retreating && hpFrac < RETREAT_HP_FRAC && threatened) brain.retreating = true;
 
     // 1. Carrying: deliver, never fight.
     if (isCarrying(p)) return { kind: 'deliver' };
@@ -143,22 +198,24 @@ export function createBotsSystem(): System {
 
     // 2. A dropped (known real) crate nearby.
     const dropped = nearest(w, p, boxes, (b) =>
-      b.state === BoxState.Dropped && !claimed.has(b.id) &&
+      b.state === BoxState.Dropped && !claimed.has(b.id) && reachableGoal(brain, w, b.id) &&
       w.distance(p, b) <= DROPPED_CRATE_RADIUS_PX && reachableFrom(w, p, b));
     if (dropped) { claimed.add(dropped.id); return { kind: 'pickup', boxId: dropped.id }; }
 
     // 3. Hostile in range: fight it.
     const hostiles = hostilesNear(w, p, FIGHT_RADIUS_PX);
-    const target = nearest(w, p, hostiles.map((h) => ({ ...h.pos, id: h.id })), (h) => reachableFrom(w, p, h));
+    const target = nearest(w, p, hostiles.map((h) => ({ ...h.pos, id: h.id })),
+      (h) => reachableGoal(brain, w, h.id) && reachableFrom(w, p, h));
     if (target) return { kind: 'fight', targetId: target.id };
 
     // 4. Nearest closed crate nobody else claimed this tick.
-    const crate = nearest(w, p, boxes, (b) => isClosedCrate(b) && !claimed.has(b.id) && reachableFrom(w, p, b));
+    const crate = nearest(w, p, boxes,
+      (b) => isClosedCrate(b) && !claimed.has(b.id) && reachableGoal(brain, w, b.id) && reachableFrom(w, p, b));
     if (crate) { claimed.add(crate.id); return { kind: 'crate', boxId: crate.id }; }
 
     // 5. Nearest standing tower.
     const towers = [...w.state.crystals.values()].filter((c) => !c.destroyed);
-    const tower = nearest(w, p, towers, (t) => reachableFrom(w, p, t));
+    const tower = nearest(w, p, towers, (t) => reachableGoal(brain, w, t.id) && reachableFrom(w, p, t));
     if (tower) return { kind: 'tower', towerId: tower.id };
 
     return { kind: 'idle' };
@@ -192,18 +249,37 @@ export function createBotsSystem(): System {
 
   function steerTo(w: World, p: Player, to: Vec2) {
     const brain = brainOf(p.id);
-    if (w.distance(p, to) <= ARRIVE_PX) {
-      w.setIntent(p.id, 0, 0);
+    const dist = w.distance(p, to);
+
+    if (brain.steerTarget.x !== to.x || brain.steerTarget.y !== to.y) {
+      brain.steerTarget = { x: to.x, y: to.y };
+      brain.roamAnchor = { x: p.x, y: p.y };
+      brain.bestDist = dist;
       brain.progressAtMs = w.now;
-      brain.lastPos = { x: p.x, y: p.y };
+      brain.sidestepUntilMs = 0;
+    }
+
+    if (!Number.isFinite(brain.moveAnchor.x) || w.distance(p, brain.moveAnchor) >= UNSTICK_PROGRESS_PX) {
+      brain.moveAnchor = { x: p.x, y: p.y };
+      brain.movedAtMs = w.now;
+    }
+
+    if (dist <= brain.bestDist - GOAL_PROGRESS_PX || w.distance(p, brain.roamAnchor) >= ROAM_PROGRESS_PX) {
+      brain.roamAnchor = { x: p.x, y: p.y };
+      brain.bestDist = Math.min(brain.bestDist, dist);
+      brain.progressAtMs = w.now;
+    }
+
+    if (dist <= ARRIVE_PX) {
+      w.setIntent(p.id, 0, 0);
+      brain.bestDist = dist;
+      brain.progressAtMs = w.now;
+      brain.movedAtMs = w.now;
       brain.sidestepUntilMs = 0;
       return;
     }
 
-    if (w.distance(p, brain.lastPos) > UNSTICK_PROGRESS_PX) {
-      brain.lastPos = { x: p.x, y: p.y };
-      brain.progressAtMs = w.now;
-    }
+    if (w.now - brain.progressAtMs >= GIVE_UP_AFTER_MS) brain.wedged = true;
 
     if (w.now < brain.sidestepUntilMs) {
       w.setIntent(p.id, brain.sidestep.x, brain.sidestep.y);
@@ -211,16 +287,15 @@ export function createBotsSystem(): System {
     }
 
     const d = w.nextStep(p, to);
-    if (w.now - brain.progressAtMs >= UNSTICK_AFTER_MS) {
+    if (w.now - brain.movedAtMs >= UNSTICK_AFTER_MS || w.now - brain.progressAtMs >= OSCILLATION_MS) {
       brain.sidestep = sidestepFor(w, p, d);
       brain.sidestepUntilMs = w.now + UNSTICK_MS;
-      brain.progressAtMs = w.now;
-      brain.lastPos = { x: p.x, y: p.y };
       w.setIntent(p.id, brain.sidestep.x, brain.sidestep.y);
       return;
     }
 
-    w.setIntent(p.id, d.x, d.y);
+    const aim = aimAround(w, p, d);
+    w.setIntent(p.id, aim.x, aim.y);
   }
 
   function goToCrate(w: World, p: Player, box: Box) {
@@ -275,6 +350,16 @@ export function createBotsSystem(): System {
     fight(w, p, tower.id, { x: tower.x, y: tower.y });
   }
 
+  /** The entity a goal is about, if any: what gets parked when it proves unreachable. */
+  function subjectOf(goal: Goal): string | undefined {
+    switch (goal.kind) {
+      case 'pickup': case 'crate': return goal.boxId;
+      case 'fight': return goal.targetId;
+      case 'tower': return goal.towerId;
+      default: return undefined;
+    }
+  }
+
   function act(w: World, p: Player, goal: Goal) {
     switch (goal.kind) {
       case 'deliver':
@@ -316,7 +401,14 @@ export function createBotsSystem(): System {
         b.nextDecisionAt = 0;
         b.retreating = false;
         b.progressAtMs = 0;
+        b.movedAtMs = 0;
         b.sidestepUntilMs = 0;
+        b.steerTarget = { x: NaN, y: NaN };
+        b.moveAnchor = { x: NaN, y: NaN };
+        b.roamAnchor = { x: NaN, y: NaN };
+        b.bestDist = Infinity;
+        b.unreachableUntil.clear();
+        b.wedged = false;
       }
     },
 
@@ -338,7 +430,10 @@ export function createBotsSystem(): System {
           brain.nextDecisionAt = 0;
           brain.sidestepUntilMs = 0;
           brain.progressAtMs = w.now;
-          brain.lastPos = { x: p.x, y: p.y };
+          brain.movedAtMs = w.now;
+          brain.moveAnchor = { x: NaN, y: NaN };
+          brain.steerTarget = { x: NaN, y: NaN };
+          brain.wedged = false;
           continue;
         }
 
@@ -350,6 +445,19 @@ export function createBotsSystem(): System {
           brain.nextDecisionAt = w.now + BOTS.REACTION_MS;
         }
         act(w, p, brain.goal);
+
+        // Steering gave up: park the subject for a while so this bot stops
+        // grinding a corner and another one can claim the crate.
+        if (brain.wedged) {
+          const subject = subjectOf(brain.goal);
+          if (subject) brain.unreachableUntil.set(subject, w.now + GIVE_UP_COOLDOWN_MS);
+          if (brain.goal.kind === 'crate' || brain.goal.kind === 'pickup') claimed.delete(brain.goal.boxId);
+          brain.goal = { kind: 'idle' };
+          brain.nextDecisionAt = 0;
+          brain.wedged = false;
+          brain.steerTarget = { x: NaN, y: NaN };
+          w.setIntent(p.id, 0, 0);
+        }
       }
     },
   };

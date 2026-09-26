@@ -61,8 +61,11 @@ export class HeistRoom extends Room<MatchState> {
     const p = this.state.players.get(client.sessionId);
     if (!p) return;
     if (this.state.phase === MatchPhase.Lobby) { this.state.players.delete(client.sessionId); return; }
-    // Mid-match the hero stays (idle); boxes.ts drops any crate it carried.
+    // Mid-match a bot takes the seat over, which is what movement.ts and
+    // boxes.ts already expect from `!connected && isBot`: an idle hero would
+    // otherwise stand in the field all match and cost the team a hero.
     p.connected = false;
+    p.isBot = true;
     this.world.setIntent(p.id, 0, 0);
   }
 
