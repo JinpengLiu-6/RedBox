@@ -56,12 +56,34 @@ export function createDirectorSystem(): System {
         body: JSON.stringify(snapshot),
         signal: AbortSignal.timeout(DIRECTOR.TIMEOUT_MS),
       })
-        .then((res) => (res.ok ? res.json() : null))
-        .then((body: unknown) => { pending.decision = validateDecision(body); })
-        .catch(() => { pending.decision = null; })
+        .then((res) => {
+          if (!res.ok) { reportFailure(`HTTP ${res.status}`); return null; }
+          return res.json();
+        })
+        .then((body: unknown) => {
+          pending.decision = validateDecision(body);
+          if (body !== null && !pending.decision) reportFailure('response failed validation');
+        })
+        .catch((err: unknown) => {
+          pending.decision = null;
+          reportFailure(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
+        })
         .finally(() => { if (token === matchToken) pending.settled = true; });
     },
   };
+}
+
+/**
+ * Failures are otherwise silent (the game just plays on without taunts), which
+ * made a stale deploy with a too-short timeout invisible. Log the first failure
+ * and then every 10th, so Railway logs show why the boss is quiet.
+ */
+let failures = 0;
+function reportFailure(reason: string) {
+  failures++;
+  if (failures === 1 || failures % 10 === 0) {
+    console.warn(`[director] call failed (${failures} so far): ${reason}. Timeout ${DIRECTOR.TIMEOUT_MS} ms.`);
+  }
 }
 
 function buildSnapshot(w: World): DirectorSnapshot {

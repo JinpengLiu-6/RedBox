@@ -16,7 +16,15 @@ HeistRoom.systemFactory = () => (STUB ? stubSystems() : realSystems());
 const httpServer = createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, mode: STUB ? 'stub' : 'live', protocol: PROTOCOL_VERSION }));
+    res.end(JSON.stringify({
+      ok: true,
+      mode: STUB ? 'stub' : 'live',
+      protocol: PROTOCOL_VERSION,
+      // Which commit is actually running (Railway sets this), and whether the
+      // optional AI layer is configured - booleans only, never the URLs.
+      commit: (process.env.RAILWAY_GIT_COMMIT_SHA ?? 'local').slice(0, 7),
+      ai: { director: Boolean(process.env.DIRECTOR_URL), debrief: Boolean(process.env.DEBRIEF_URL) },
+    }));
     return;
   }
   res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -30,5 +38,6 @@ const gameServer = new Server({
 gameServer.define(ROOM_NAME, HeistRoom);
 
 gameServer.listen(port).then(() => {
-  console.log(`[redbox] ${STUB ? 'STUB' : 'live'} server listening on :${port} (room "${ROOM_NAME}", protocol v${PROTOCOL_VERSION})`);
+  console.log(`[redbox] ${STUB ? 'STUB' : 'live'} server listening on :${port} (room "${ROOM_NAME}", protocol v${PROTOCOL_VERSION}, ` +
+    `commit ${(process.env.RAILWAY_GIT_COMMIT_SHA ?? 'local').slice(0, 7)}, AI director ${process.env.DIRECTOR_URL ? 'on' : 'off'})`);
 });
