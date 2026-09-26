@@ -77,13 +77,15 @@ OUTCOME_VICTORY = 1
 #: Default models, checked against OpenAI's docs (URLs in README.md).
 #: Director: GPT-6 Luna, "our most efficient model for focused, high-volume
 #: tasks", run with reasoning effort "none" ("latency-critical tasks") because
-#: the game server aborts the call after 2.5 s.
+#: the game server aborts the call after 6 s (DIRECTOR.TIMEOUT_MS).
 #: https://developers.openai.com/api/docs/models/gpt-6-luna
 DEFAULT_DIRECTOR_MODEL = "gpt-6-luna"
 DEFAULT_DIRECTOR_REASONING_EFFORT = "none"
-#: Debrief: GPT-6 Sol, the stronger mid-tier model; "low" effort keeps it well
-#: inside the 15 s debrief budget. https://developers.openai.com/api/docs/models/gpt-6-sol
-DEFAULT_DEBRIEF_MODEL = "gpt-6-sol"
+#: Debrief: GPT-6 Luna as well. The prompt is a ~600-token fact sheet (events are
+#: summarised here, not sent raw), so the cheapest model writes a good recap;
+#: Sol costs 20x as much ($2.00/$10.00 vs $0.10/$0.50 per 1M tokens in/out,
+#: https://developers.openai.com/api/docs/pricing) for no visible gain.
+DEFAULT_DEBRIEF_MODEL = "gpt-6-luna"
 DEFAULT_DEBRIEF_REASONING_EFFORT = "low"
 #: Non-secret overrides, read from the environment on every request. An effort
 #: of "omit" drops the `reasoning` parameter (for models that do not take it).

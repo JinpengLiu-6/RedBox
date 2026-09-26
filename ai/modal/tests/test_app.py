@@ -43,7 +43,7 @@ def test_app_module_imports_offline(app_module):
     assert isinstance(app_module.director, modal.Function)
     assert isinstance(app_module.debrief, modal.Function)
     assert app_module.DEFAULT_DIRECTOR_MODEL == "gpt-6-luna"
-    assert app_module.DEFAULT_DEBRIEF_MODEL == "gpt-6-sol"
+    assert app_module.DEFAULT_DEBRIEF_MODEL == "gpt-6-luna"
     assert app_module.SECRET_NAME == "openai"
     assert app_module._client.cache_info().currsize == 0  # no OpenAI client built at import
 

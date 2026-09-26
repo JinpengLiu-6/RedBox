@@ -85,7 +85,7 @@ def test_debrief_through_the_real_sdk(debrief_fixture):
     assert (status, payload) == (200, output)
     ((_, path, _, body),) = seen
     assert path == "/v1/responses"
-    assert body["model"] == "gpt-6-sol"
+    assert body["model"] == "gpt-6-luna"
     assert body["reasoning"] == {"effort": "low"}
     assert body["text"] == {"format": gk.DEBRIEF_FORMAT}
     assert set(body) == {"model", "instructions", "input", "text", "reasoning", "max_output_tokens", "store"}

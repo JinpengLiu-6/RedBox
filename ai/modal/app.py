@@ -5,7 +5,7 @@ them when DIRECTOR_URL / DEBRIEF_URL are set, and falls back locally on any
 non-200 answer or timeout:
 
   director  DirectorSnapshot -> DirectorDecision   (DIRECTOR_MODEL, default gpt-6-luna, kept warm)
-  debrief   DebriefRequest   -> DebriefPayload     (DEBRIEF_MODEL, default gpt-6-sol)
+  debrief   DebriefRequest   -> DebriefPayload     (DEBRIEF_MODEL, default gpt-6-luna)
 
 Both call the OpenAI Responses API with Structured Outputs (strict JSON
 schema). All prompt building and validation lives in goblin_king.py (pure,
@@ -73,7 +73,7 @@ def _client(timeout_s: float) -> Any:
 
     The SDK picks the API key up from the environment (injected by the Modal
     secret); this code never reads or logs it. No retries: a late answer is
-    worthless to a 2.5 s director budget, and the game falls back anyway.
+    worthless to a 6 s director budget, and the game falls back anyway.
     """
     import openai
 

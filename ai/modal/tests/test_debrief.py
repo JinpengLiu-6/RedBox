@@ -40,7 +40,7 @@ def test_golden_path_fixture_round_trips(debrief_fixture):
 
     (request,) = client.calls
     assert set(request) == {"model", "instructions", "input", "text", "reasoning", "max_output_tokens", "store"}
-    assert request["model"] == gk.DEFAULT_DEBRIEF_MODEL == "gpt-6-sol"
+    assert request["model"] == gk.DEFAULT_DEBRIEF_MODEL == "gpt-6-luna"
     assert request["text"] == {"format": gk.DEBRIEF_FORMAT}
     assert request["text"]["format"]["type"] == "json_schema" and request["text"]["format"]["strict"] is True
     assert request["text"]["format"]["name"] == gk.DEBRIEF_SCHEMA_NAME

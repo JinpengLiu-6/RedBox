@@ -8,7 +8,7 @@ any timeout or non-200 answer.
 | Endpoint | In (`shared/src/events.ts`) | Out | Model (env override) |
 |---|---|---|---|
 | `director` (POST) | `DirectorSnapshot` | `DirectorDecision` `{focus, threatBias, taunt, reasoning}` | `gpt-6-luna`, reasoning effort `none` (`DIRECTOR_MODEL`), kept warm (`min_containers=1`) |
-| `debrief` (POST) | `DebriefRequest` | `DebriefPayload` `{summary, highlights[3], mvpPlayerId}` (`shared/src/messages.ts`) | `gpt-6-sol`, reasoning effort `low` (`DEBRIEF_MODEL`) |
+| `debrief` (POST) | `DebriefRequest` | `DebriefPayload` `{summary, highlights[3], mvpPlayerId}` (`shared/src/messages.ts`) | `gpt-6-luna`, reasoning effort `low` (`DEBRIEF_MODEL`) |
 
 ## Models
 
@@ -22,15 +22,14 @@ Both calls use the official OpenAI Python SDK and the Responses API
   Responses API and `reasoning.effort: "none"`). It runs with effort `none`,
   which https://developers.openai.com/api/docs/guides/reasoning describes as the
   setting for "latency-critical tasks that do not benefit from any reasoning".
-  The game server gives up after 2.5 s, so the director has no time to think.
-- **Debrief: `gpt-6-sol`**:
-  https://developers.openai.com/api/docs/models/gpt-6-sol (supports Structured
-  Outputs and the Responses API). OpenAI's model guidance
-  (https://developers.openai.com/api/docs/guides/latest-model) puts Sol at
-  "strong reasoning on demanding tasks" and Luna at "efficient, repeatable work
-  at scale". The debrief runs once per match with a 15 s budget, so it gets the
-  stronger model with effort `low`. `gpt-6-astra` is stronger still, but it has
-  no `none` effort and costs 5x as much as Sol, and the debrief does not need it.
+  The game server gives up after 6 s (measured warm round trip 2.2-2.9 s), so the director has no time to think.
+- **Debrief: `gpt-6-luna`** too, effort `low`. The model never sees the raw
+  event log: `goblin_king.debrief_prompt` turns it into a ~600-token fact sheet
+  (1,500 events still produce ~600 tokens), so the cheapest model writes a good
+  recap. `gpt-6-sol` also works (`DEBRIEF_MODEL=gpt-6-sol modal deploy ...`) but
+  costs 20x as much: $2.00 / $10.00 vs $0.10 / $0.50 per 1M input / output tokens
+  (https://developers.openai.com/api/docs/pricing). Estimated cost per match with
+  Luna: well under one US cent for ~35 director calls plus one debrief.
 - **Structured Outputs**:
   https://developers.openai.com/api/docs/guides/structured-outputs
   (`text.format = {"type": "json_schema", "name", "schema", "strict": true}`).
@@ -41,9 +40,9 @@ image and nothing else:
 
 | Variable | Default | Notes |
 |---|---|---|
-| `DIRECTOR_MODEL` | `gpt-6-luna` | keep it small: 2.5 s budget |
+| `DIRECTOR_MODEL` | `gpt-6-luna` | keep it small: 6 s budget, measured 2.2-2.9 s |
 | `DIRECTOR_REASONING_EFFORT` | `none` | `none`, `minimal`, `low`, ... as the model supports; `omit` drops the parameter |
-| `DEBRIEF_MODEL` | `gpt-6-sol` | |
+| `DEBRIEF_MODEL` | `gpt-6-luna` | Sol works too, at 20x the price |
 | `DEBRIEF_REASONING_EFFORT` | `low` | same values as above |
 
 ```bash
@@ -207,7 +206,7 @@ curl -sS -X POST "$DEBRIEF_URL" \
 ```
 
 Warm director latency (target: p50 under 1.5 s over 5 calls; the game server
-gives up after 2.5 s):
+gives up after 6 s):
 
 ```bash
 for i in 1 2 3 4 5; do
