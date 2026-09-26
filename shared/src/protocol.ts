@@ -12,7 +12,7 @@ import type { ClassId } from './classes.js';
 export const ROOM_NAME = 'heist';
 
 /** Bumped whenever shared/ changes shape. Server rejects a mismatched client. */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 export interface JoinOptions {
   protocolVersion: number;

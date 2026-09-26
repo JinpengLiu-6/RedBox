@@ -207,6 +207,7 @@ function resetBoard(s: MatchState) {
   s.boxesRequired = 0;
   s.crystalsDestroyed = 0;
   s.bossDamageMult = 1;
+  s.bossRequired = false;
   s.boxes.clear(); s.creeps.clear(); s.crystals.clear(); s.hazards.clear(); s.revives.clear();
   s.boss.x = MAP.BOSS_ZONE.x;
   s.boss.y = MAP.BOSS_ZONE.y;

@@ -61,7 +61,9 @@ render raw `x/y`. Guard the first frames: state is empty until the first patch.
 | Party | `players`: name, `hp/maxHp`, `lives`, `alive`, `connected`, `isBot` ("(bot)") |
 | Skill locks | `player.ranks[slot] === 0` → label `SLOT_UNLOCK_LABEL[slot]` ("Wave 2"/"Wave 3") |
 | Cooldowns | `abilityCooldownProgress(player, slot, state.elapsedMs)` |
-| Carrying | `player.carryingBoxId !== ''` (attacks and skills disabled) |
+| Carrying | `player.carryingBoxId !== ''` (attacks and skills disabled, slower) |
+| Crate scan | `box.scan` (0..100), `box.mark` once revealed |
+| Final objective | `state.bossRequired` → "Defeat the Goblin King" once crates are in |
 
 Heroes (`CLASSES`): Elf Mage, Axe Troll, Human Brawler, Dwarf Demolitionist,
 Dual-Blade Warrior. Ring colours are in `ClassSpec.color`. UI text is English.
@@ -79,9 +81,17 @@ Dual-Blade Warrior. Ring colours are in `ClassSpec.color`. UI text is English.
 
 ## The integrity rule
 
-**Closed crates are identical.** Real vs trap exists only on the server until
-someone presses F. No scanning, checkmarks, tints, minimap markers or any field
-that differs. `state = Dropped` means someone carried it, so it is known real.
+**Unscanned closed crates are identical.** Real vs trap exists only on the
+server until someone presses F or finishes a scan. A hero standing still next to
+a closed crate scans it: `box.scan` 0..100 is the progress bar, and at 100
+`box.mark` becomes `Real` or `Fake` (the crate stays closed; a scanned trap still
+breaks if opened). Damage resets the scan; the dwarf scans 2x faster
+(`ClassSpec.scanSpeed`, `CRATES.SCAN_MS`). `state = Dropped` means someone
+carried it, so it is known real. Nothing else may differ between crates.
+
+**Final wave.** `state.bossRequired` is true in wave 3: the match is won only
+when the crates are delivered AND the boss is down. Carriers move at
+`CRATES.CARRY_SPEED_MULT` speed.
 
 ## Version pins — do not casually upgrade
 
@@ -96,7 +106,7 @@ that differs. `state = Dropped` means someone carried it, so it is known real.
 - Schema fields have no implicit default → every field declares one.
 - `schema.ts` is server-only at runtime; the client imports types only, runtime
   enums live in `enums.ts`.
-- `PROTOCOL_VERSION` is **2** (wave redesign). Bump it whenever the wire shape
+- `PROTOCOL_VERSION` is **3** (crate scan, final-wave boss). Bump it whenever the wire shape
   changes; the server then rejects stale clients with a clear error.
 
 ## Changing the contract

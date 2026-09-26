@@ -67,8 +67,13 @@ export const CRATES = {
   PICKUP_RADIUS: 52,
   /** DEFAULT: one crate per player; carrying disables attacks AND skills. */
   MAX_CARRIED: 1,
-  /** DEFAULT: no movement penalty while carrying. */
-  CARRY_SPEED_MULT: 1.0,
+  /** Carriers move slower, so somebody has to escort them. */
+  CARRY_SPEED_MULT: 0.75,
+  /**
+   * Standing still next to a closed crate for this long reveals what it is
+   * (`ClassSpec.scanSpeed` divides it). Taking damage resets the scan.
+   */
+  SCAN_MS: 6_000,
   /** DEFAULT: a trap breaks and releases this many goblins, exactly once. */
   TRAP_GOBLINS: 3,
   /** Placement is seeded per wave (reproducible); identities are random. */
@@ -88,7 +93,7 @@ export function bossDamageMultiplier(towersDestroyed: number): number {
 
 export const BOSS = {
   /** Scaled by WAVE_PLAN[wave].bossMult. */
-  HP: 2400,
+  HP: 3200,
   SPEED: 150,
   RADIUS: 46,
   /** DEFAULT: once a target is picked it is kept at least this long (no jitter). */
@@ -125,7 +130,7 @@ export const GOBLINS = {
   /** Re-evaluate target at least this often. */
   RETARGET_MS: 1_000,
   /** DEFAULT: guards placed on 'g' tiles at the start of every wave. */
-  GUARDS_PER_WAVE: 4,
+  GUARDS_PER_WAVE: 6,
   MAX_ALIVE: 40,
 } as const;
 

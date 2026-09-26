@@ -5,9 +5,9 @@
  * Vite/esbuild). EVERY field declares a default: schema leaves undeclared fields
  * `undefined`, so `hp -= dmg` would produce NaN and poison the encoder.
  *
- * Integrity rule: a closed crate's identity is NEVER in this state. Every
- * unopened crate is identical on the wire (`mark` Unknown) until the server
- * resolves the interaction. No field may reveal it earlier.
+ * Integrity rule: a closed crate's identity is NEVER in this state until the
+ * server reveals it: by opening it, or by a completed scan (`scan` reaches 100).
+ * Every unscanned crate is identical on the wire (`mark` Unknown).
  */
 
 import { schema } from '@colyseus/schema';
@@ -55,13 +55,15 @@ export const Player = schema({
 }, 'Player');
 export type Player = InstanceType<typeof Player>;
 
-/** A crate. All closed crates look identical: only `id`, position, `state`. */
+/** A crate. Unscanned closed crates look identical: only `id`, position, `state`, `scan`. */
 export const Box = schema({
   id: str(),
   x: num('float32'),
   y: num('float32'),
-  /** BoxMark. Unknown until interacted with. */
+  /** BoxMark. Unknown until opened or scanned. */
   mark: num('uint8'),
+  /** Scan progress 0..100; the mark is revealed at 100. */
+  scan: num('uint8'),
   /** BoxState. */
   state: num('uint8'),
   carriedBy: str(),
@@ -154,6 +156,8 @@ export const MatchState = schema({
   crystalsDestroyed: num('uint8'),
   /** 1.00 / 1.25 / 1.50 / 1.75 - authoritative, so every client shows the same value. */
   bossDamageMult: num('float32', 1),
+  /** Final wave: the boss must be defeated too, deliveries alone do not win. */
+  bossRequired: bool(),
 
   roomCode: str(),
 

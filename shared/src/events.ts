@@ -9,7 +9,7 @@ import type { ClassId } from './classes.js';
 export type MatchEventType =
   | 'match_start' | 'match_end'
   | 'wave_start' | 'wave_cleared'
-  | 'box_picked' | 'box_delivered' | 'box_dropped'
+  | 'box_picked' | 'box_delivered' | 'box_dropped' | 'box_scanned'
   | 'trap_triggered'
   | 'crystal_destroyed'
   | 'boss_target_changed' | 'boss_attack' | 'boss_defeated'

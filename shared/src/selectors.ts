@@ -68,12 +68,21 @@ export function respawnProgress(player: Player, nowMs: number, respawnMs: number
   return remaining <= 0 ? 1 : Math.max(0, Math.min(1, 1 - remaining / respawnMs));
 }
 
-/** Closed crates on the map. Real and trap look identical - never branch on truth. */
+/** Closed crates on the map, scanned or not. Only `mark` may tell real from trap. */
 export function isClosedCrate(box: Pick<Box, 'state'>): boolean {
   return box.state === BoxState.Idle;
 }
 
-/** A dropped crate was carried, so it is known-real and safe to grab. */
+export function scanSpeedOf(player: Pick<Player, 'classIndex'>): number {
+  return classOf(player).scanSpeed ?? 1;
+}
+
+/** A scanned trap: still closed, still breaks if opened. */
+export function isKnownTrap(box: Pick<Box, 'mark'>): boolean {
+  return box.mark === BoxMark.Fake;
+}
+
+/** Carried (dropped) or scanned real: safe to grab. */
 export function isKnownReal(box: Pick<Box, 'mark'>): boolean {
   return box.mark === BoxMark.Real;
 }
