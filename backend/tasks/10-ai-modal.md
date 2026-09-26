@@ -15,10 +15,14 @@ Exact field names/types — the server silently ignores anything else.
 ## Build
 - `ai/modal/app.py`: Modal app `redbox-ai`, two POST web endpoints (check the
   current decorator in Modal docs: `@modal.fastapi_endpoint`; older: `web_endpoint`).
-- Claude via the Anthropic SDK; key from Modal secret `anthropic`
-  (`ANTHROPIC_API_KEY`). Director: `claude-haiku-4-5-20251001` (server timeout is
-  2.5s). Debrief: `claude-sonnet-5`. Force the schema with tool use / structured
-  output. Use the `claude-api` skill for exact SDK usage.
+- OpenAI via the official OpenAI Python SDK (Responses API); key from Modal
+  secret `openai` (`OPENAI_API_KEY`), read by the SDK only. Director:
+  `gpt-6-luna` with reasoning effort `none` (server timeout is 2.5s). Debrief:
+  `gpt-6-sol` with effort `low`. Both are overridable via env `DIRECTOR_MODEL` /
+  `DEBRIEF_MODEL` (plus `*_REASONING_EFFORT`) at deploy time; `ai/modal/README.md`
+  links the OpenAI doc behind each default. Force the schema with Structured
+  Outputs (strict `json_schema` text format) and keep the server-side
+  validation/clamping.
 - Director warm (`min_containers=1`) so the demo never hits a cold start.
 - `ai/modal/fixtures/{snapshot,debrief}.json`, `ai/modal/README.md` (deploy + curl).
 

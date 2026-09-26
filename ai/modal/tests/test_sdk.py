@@ -1,4 +1,4 @@
-"""The request kwargs are valid for the real Anthropic SDK and its typed Message
+"""The request kwargs are valid for the real OpenAI SDK and its typed Response
 parses through our extractor. Uses an in-process mock transport and a dummy key:
 nothing leaves the process and no real credential is read."""
 
@@ -7,57 +7,116 @@ from __future__ import annotations
 import json
 import socket
 
-import anthropic
 import httpx2
+import openai
 import pytest
 
 import goblin_king as gk
 
+DUMMY_KEY = "dummy-key-for-offline-tests"
 
-def sdk_client(tool_name: str, tool_input: dict, model: str, seen: list) -> anthropic.Anthropic:
+
+def response_json(model: str, content: list[dict], status: str = "completed") -> dict:
+    """A Responses API body as the server sends it: a reasoning item, then the message."""
+    return {
+        "id": "resp_mock", "object": "response", "created_at": 1790000000, "status": status,
+        "model": model, "error": None, "incomplete_details": None,
+        "instructions": None, "metadata": {}, "parallel_tool_calls": True,
+        "temperature": None, "top_p": None, "tool_choice": "auto", "tools": [],
+        "output": [
+            {"type": "reasoning", "id": "rs_mock", "summary": []},
+            {"type": "message", "id": "msg_mock", "role": "assistant", "status": "completed", "content": content},
+        ],
+        "usage": {
+            "input_tokens": 900, "output_tokens": 80, "total_tokens": 980,
+            "input_tokens_details": {"cached_tokens": 0}, "output_tokens_details": {"reasoning_tokens": 0},
+        },
+    }
+
+
+def sdk_client(content: list[dict], seen: list) -> openai.OpenAI:
     def handler(request: httpx2.Request) -> httpx2.Response:
-        seen.append((request.method, request.url.path, json.loads(request.content)))
-        return httpx2.Response(200, json={
-            "id": "msg_mock", "type": "message", "role": "assistant", "model": model,
-            "content": [{"type": "tool_use", "id": "toolu_mock", "name": tool_name, "input": tool_input}],
-            "stop_reason": "tool_use", "stop_sequence": None,
-            "usage": {"input_tokens": 900, "output_tokens": 80},
-        })
+        body = json.loads(request.content)
+        seen.append((request.method, request.url.path, request.headers.get("authorization"), body))
+        return httpx2.Response(200, json=response_json(body["model"], content))
 
-    return anthropic.Anthropic(
-        api_key="dummy-key-for-offline-tests",
+    return openai.OpenAI(
+        api_key=DUMMY_KEY,
         max_retries=0,
-        http_client=anthropic.DefaultHttpxClient(transport=httpx2.MockTransport(handler)),
+        http_client=openai.DefaultHttpxClient(transport=httpx2.MockTransport(handler)),
     )
+
+
+def output_text(data: dict) -> list[dict]:
+    return [{"type": "output_text", "text": json.dumps(data), "annotations": []}]
 
 
 def test_the_suite_cannot_reach_the_network():
     with pytest.raises(RuntimeError, match="network access is disabled"):
-        socket.create_connection(("api.anthropic.com", 443), timeout=1)
+        socket.create_connection(("api.openai.com", 443), timeout=1)
 
 
 def test_director_through_the_real_sdk(snapshot_fixture):
     seen: list = []
-    output = {"focus": "dwarf", "threatBias": {"dwarf": 1.7}, "taunt": "Crate thief Dwarf, my club says hi!", "reasoning": "Carrier."}
-    client = sdk_client(gk.DIRECTOR_TOOL_NAME, output, gk.DIRECTOR_MODEL, seen)
-    status, decision = gk.handle_director(snapshot_fixture, client)
-    assert (status, decision) == (200, output)
-    ((method, path, body),) = seen
-    assert (method, path) == ("POST", "/v1/messages")
-    assert body["model"] == "claude-haiku-4-5-20251001"
-    assert body["tool_choice"] == {"type": "tool", "name": gk.DIRECTOR_TOOL_NAME}
-    assert body["tools"][0]["strict"] is True and body["tools"][0]["input_schema"] == gk.DIRECTOR_TOOL["input_schema"]
-    assert "Carrying a crate: Dwarf Demolitionist." in body["messages"][0]["content"]
+    output = {
+        "focus": "dwarf", "threatBias": {"mage": None, "troll": None, "brawler": None, "dwarf": 1.7, "warrior": None},
+        "taunt": "Crate thief Dwarf, my club says hi!", "reasoning": "Carrier.",
+    }
+    status, decision = gk.handle_director(snapshot_fixture, sdk_client(output_text(output), seen))
+    assert (status, decision) == (200, {**output, "threatBias": {"dwarf": 1.7}})
+    ((method, path, auth, body),) = seen
+    assert (method, path, auth) == ("POST", "/v1/responses", f"Bearer {DUMMY_KEY}")
+    assert body["model"] == "gpt-6-luna"
+    assert body["reasoning"] == {"effort": "none"}
+    assert body["store"] is False
+    assert body["text"] == {"format": gk.DIRECTOR_FORMAT}  # sent verbatim: strict json_schema
+    assert body["text"]["format"]["strict"] is True
+    assert body["instructions"] == gk.DIRECTOR_SYSTEM
+    assert "Carrying a crate: Dwarf Demolitionist." in body["input"]
 
 
 def test_debrief_through_the_real_sdk(debrief_fixture):
     seen: list = []
-    output = {"summary": "Eight crates gone. I am furious. Tess, I will remember your beard.", "highlights": ["a", "b", "c"], "mvpPlayerId": "Xk3fQ9aLm"}
-    client = sdk_client(gk.DEBRIEF_TOOL_NAME, output, gk.DEBRIEF_MODEL, seen)
-    status, payload = gk.handle_debrief(debrief_fixture, client)
+    output = {
+        "summary": "Eight crates gone. I am furious. Tess, I will remember your beard.",
+        "highlights": ["a", "b", "c"], "mvpPlayerId": "Xk3fQ9aLm",
+    }
+    status, payload = gk.handle_debrief(debrief_fixture, sdk_client(output_text(output), seen))
     assert (status, payload) == (200, output)
-    ((_, _, body),) = seen
-    assert body["model"] == "claude-sonnet-5"
-    assert body["thinking"] == {"type": "disabled"}
-    assert body["tool_choice"] == {"type": "tool", "name": gk.DEBRIEF_TOOL_NAME}
-    assert set(body) == {"model", "max_tokens", "system", "thinking", "tools", "tool_choice", "messages"}
+    ((_, path, _, body),) = seen
+    assert path == "/v1/responses"
+    assert body["model"] == "gpt-6-sol"
+    assert body["reasoning"] == {"effort": "low"}
+    assert body["text"] == {"format": gk.DEBRIEF_FORMAT}
+    assert set(body) == {"model", "instructions", "input", "text", "reasoning", "max_output_tokens", "store"}
+
+
+def test_env_model_reaches_the_wire(snapshot_fixture, monkeypatch):
+    monkeypatch.setenv("DIRECTOR_MODEL", "gpt-custom-director")
+    monkeypatch.setenv("DIRECTOR_REASONING_EFFORT", "omit")
+    seen: list = []
+    output = {"focus": None, "threatBias": dict.fromkeys(gk.CLASS_IDS), "taunt": "Dwarf, drop my crate!", "reasoning": "x"}
+    status, _ = gk.handle_director(snapshot_fixture, sdk_client(output_text(output), seen))
+    ((_, _, _, body),) = seen
+    assert status == 200 and body["model"] == "gpt-custom-director" and "reasoning" not in body
+
+
+def test_refusal_through_the_real_sdk_is_a_502(snapshot_fixture):
+    seen: list = []
+    client = sdk_client([{"type": "refusal", "refusal": "I can't help with that."}], seen)
+    status, payload = gk.handle_director(snapshot_fixture, client)
+    assert (status, payload) == (502, {"error": "invalid_model_output", "detail": "model refused"})
+
+
+def test_http_errors_from_the_sdk_are_a_503(snapshot_fixture):
+    """E.g. an unknown DIRECTOR_MODEL: OpenAI answers 400, the game falls back."""
+
+    def handler(_request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(400, json={"error": {"message": "model not found", "type": "invalid_request_error"}})
+
+    client = openai.OpenAI(
+        api_key=DUMMY_KEY, max_retries=0,
+        http_client=openai.DefaultHttpxClient(transport=httpx2.MockTransport(handler)),
+    )
+    status, payload = gk.handle_director(snapshot_fixture, client)
+    assert (status, payload) == (503, {"error": "upstream_error", "detail": "BadRequestError"})

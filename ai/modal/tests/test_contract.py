@@ -22,7 +22,10 @@ def _strip_descriptions(schema):
 
 
 def ts_type_to_schema(ts_type: str, class_ids: list[str]) -> dict:
-    """The JSON Schema a strict tool must use for a TS field type."""
+    """The JSON Schema a strict response format must use for a TS field type.
+
+    OpenAI strict mode makes every property required, so an optional record
+    key (`Partial<...>`) becomes a required key whose value may be null."""
     t = " ".join(ts_type.split())
     if t == "string":
         return {"type": "string"}
@@ -37,23 +40,45 @@ def ts_type_to_schema(ts_type: str, class_ids: list[str]) -> dict:
     if re.fullmatch(r"Partial<Record<ClassId,\s*number>>", t):
         return {
             "type": "object",
-            "properties": {cid: {"type": "number"} for cid in class_ids},
+            "properties": {cid: {"type": ["number", "null"]} for cid in class_ids},
+            "required": class_ids,
             "additionalProperties": False,
         }
-    raise AssertionError(f"no JSON Schema mapping for TS type {t!r} - extend the tool schema and this test")
+    raise AssertionError(f"no JSON Schema mapping for TS type {t!r} - extend the response schema and this test")
 
 
-def assert_tool_matches(tool: dict, ts_fields: dict[str, ts.Field]) -> None:
-    schema = tool["input_schema"]
-    assert tool["strict"] is True
-    assert schema["type"] == "object"
-    assert schema["additionalProperties"] is False
+def strict_violations(schema, path: str = "$") -> list[str]:
+    """Where a schema breaks OpenAI's strict Structured Outputs rules: every
+    object sets additionalProperties false and lists all its properties in
+    `required`. Either mistake is an HTTP 400 on every single call."""
+    problems = []
+    if isinstance(schema, dict):
+        if schema.get("type") == "object" or "properties" in schema:
+            if schema.get("additionalProperties") is not False:
+                problems.append(f"{path}: additionalProperties must be false")
+            if sorted(schema.get("required", [])) != sorted(schema.get("properties", {})):
+                problems.append(f"{path}: every property must be required")
+        for name, sub in schema.get("properties", {}).items():
+            problems += strict_violations(sub, f"{path}.{name}")
+        if "items" in schema:
+            problems += strict_violations(schema["items"], f"{path}[]")
+        for i, sub in enumerate(schema.get("anyOf", [])):
+            problems += strict_violations(sub, f"{path}|{i}")
+    return problems
+
+
+def assert_format_matches(text_format: dict, ts_fields: dict[str, ts.Field]) -> None:
+    assert text_format["type"] == "json_schema"
+    assert text_format["strict"] is True
+    assert re.fullmatch(r"[A-Za-z0-9_-]{1,64}", text_format["name"])
+    schema = text_format["schema"]
+    assert schema["type"] == "object" and "anyOf" not in schema  # the root must be a plain object
+    assert strict_violations(schema) == []
     class_ids = ts.class_ids()
     expected = {name: ts_type_to_schema(f.ts_type, class_ids) for name, f in ts_fields.items()}
     assert _strip_descriptions(schema["properties"]) == expected
     required = set(schema["required"])
-    assert required <= set(ts_fields), "tool requires a field the contract does not have"
-    assert {n for n, f in ts_fields.items() if not f.optional} <= required, "contract-required field is optional in the tool"
+    assert required == set(ts_fields), "strict mode requires exactly the contract's fields"
 
 
 # ---- constants -----------------------------------------------------------------
@@ -83,36 +108,61 @@ def test_match_event_shape_matches_events_ts():
 # ---- tool schemas vs output contract ---------------------------------------------
 
 
-def test_director_tool_schema_matches_director_decision():
+def test_director_format_matches_director_decision():
     fields = ts.interface("events.ts", "DirectorDecision")
     assert set(fields) == {"focus", "threatBias", "taunt", "reasoning"}
-    assert_tool_matches(gk.DIRECTOR_TOOL, fields)
+    assert_format_matches(gk.DIRECTOR_FORMAT, fields)
 
 
-def test_debrief_tool_schema_matches_debrief_payload():
+def test_debrief_format_matches_debrief_payload():
     fields = ts.interface("messages.ts", "DebriefPayload")
     assert set(fields) == {"summary", "mvpPlayerId", "highlights"}
-    assert_tool_matches(gk.DEBRIEF_TOOL, fields)
+    assert_format_matches(gk.DEBRIEF_FORMAT, fields)
 
 
 def test_schema_check_catches_drift():
     """The comparison above is not vacuous: a renamed or retyped field fails it."""
     fields = ts.interface("events.ts", "DirectorDecision")
-    renamed = copy.deepcopy(gk.DIRECTOR_TOOL)
-    renamed["input_schema"]["properties"]["taunts"] = renamed["input_schema"]["properties"].pop("taunt")
+    renamed = copy.deepcopy(gk.DIRECTOR_FORMAT)
+    renamed["schema"]["properties"]["taunts"] = renamed["schema"]["properties"].pop("taunt")
     with pytest.raises(AssertionError):
-        assert_tool_matches(renamed, fields)
-    retyped = copy.deepcopy(gk.DIRECTOR_TOOL)
-    retyped["input_schema"]["properties"]["focus"] = {"type": "string"}
+        assert_format_matches(renamed, fields)
+    retyped = copy.deepcopy(gk.DIRECTOR_FORMAT)
+    retyped["schema"]["properties"]["focus"] = {"type": "string"}
     with pytest.raises(AssertionError):
-        assert_tool_matches(retyped, fields)
+        assert_format_matches(retyped, fields)
 
 
-def test_tool_schemas_avoid_constraints_strict_mode_rejects():
-    banned = {"minimum", "maximum", "multipleOf", "minLength", "maxLength", "minItems", "maxItems"}
-    for tool in (gk.DIRECTOR_TOOL, gk.DEBRIEF_TOOL):
-        text = json.dumps(tool)
-        assert not any(f'"{key}"' in text for key in banned), tool["name"]
+def test_strict_check_catches_optional_properties():
+    """An optional key (the pre-OpenAI threatBias shape) is rejected by strict mode, and by this test."""
+    loose = copy.deepcopy(gk.DIRECTOR_FORMAT)
+    del loose["schema"]["properties"]["threatBias"]["required"]
+    assert strict_violations(loose["schema"]) == ["$.threatBias: every property must be required"]
+    open_object = copy.deepcopy(gk.DEBRIEF_FORMAT)
+    open_object["schema"]["additionalProperties"] = True
+    assert strict_violations(open_object["schema"]) == ["$: additionalProperties must be false"]
+
+
+def test_response_formats_stay_in_the_portable_strict_subset():
+    """Bounds live in validate_*(), not in the schema, so any env-selected model accepts it."""
+    banned = {"minimum", "maximum", "multipleOf", "minLength", "maxLength", "minItems", "maxItems", "pattern", "format"}
+
+    def keys(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                yield key
+                if key != "properties":
+                    yield from keys(value)
+                else:
+                    for sub in value.values():
+                        yield from keys(sub)
+        elif isinstance(node, list):
+            for value in node:
+                yield from keys(value)
+
+    for text_format in (gk.DIRECTOR_FORMAT, gk.DEBRIEF_FORMAT):
+        assert not banned & set(keys(text_format["schema"])), text_format["name"]
+        json.dumps(text_format)  # plain JSON, sent as-is
 
 
 # ---- request contracts vs fixtures -------------------------------------------------

@@ -1,8 +1,12 @@
-"""The Goblin King's brain: prompts, tool schemas and output validation.
+"""The Goblin King's brain: prompts, response schemas and output validation.
 
-Pure functions only. Nothing here imports Modal or the Anthropic SDK or touches
+Pure functions only. Nothing here imports Modal or the OpenAI SDK or touches
 the network, so every rule is testable offline with a fake client. `app.py`
 wires these into the two Modal web endpoints.
+
+Model calls go through the OpenAI Responses API with Structured Outputs (a
+strict `json_schema` text format), so the model can only answer with JSON of
+the contract's shape; validate_*() still clamps every field afterwards.
 
 Contract (fixed, mirrored from shared/src - the tests diff this file against it):
   POST director: DirectorSnapshot -> DirectorDecision {focus, threatBias, taunt, reasoning}
@@ -18,6 +22,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import unicodedata
 from typing import Any, Mapping, Sequence
@@ -69,12 +74,30 @@ OUTCOME_VICTORY = 1
 # Own tuning.
 # ---------------------------------------------------------------------------
 
-DIRECTOR_MODEL = "claude-haiku-4-5-20251001"
-DEBRIEF_MODEL = "claude-sonnet-5"
-DIRECTOR_TOOL_NAME = "goblin_king_decision"
-DEBRIEF_TOOL_NAME = "goblin_king_debrief"
-DIRECTOR_MAX_TOKENS = 400
-DEBRIEF_MAX_TOKENS = 2000
+#: Default models, checked against OpenAI's docs (URLs in README.md).
+#: Director: GPT-6 Luna, "our most efficient model for focused, high-volume
+#: tasks", run with reasoning effort "none" ("latency-critical tasks") because
+#: the game server aborts the call after 2.5 s.
+#: https://developers.openai.com/api/docs/models/gpt-6-luna
+DEFAULT_DIRECTOR_MODEL = "gpt-6-luna"
+DEFAULT_DIRECTOR_REASONING_EFFORT = "none"
+#: Debrief: GPT-6 Sol, the stronger mid-tier model; "low" effort keeps it well
+#: inside the 15 s debrief budget. https://developers.openai.com/api/docs/models/gpt-6-sol
+DEFAULT_DEBRIEF_MODEL = "gpt-6-sol"
+DEFAULT_DEBRIEF_REASONING_EFFORT = "low"
+#: Non-secret overrides, read from the environment on every request. An effort
+#: of "omit" drops the `reasoning` parameter (for models that do not take it).
+MODEL_ENV_KEYS: tuple[str, ...] = (
+    "DIRECTOR_MODEL", "DEBRIEF_MODEL", "DIRECTOR_REASONING_EFFORT", "DEBRIEF_REASONING_EFFORT",
+)
+OMIT_REASONING = "omit"
+DIRECTOR_SCHEMA_NAME = "goblin_king_decision"
+DEBRIEF_SCHEMA_NAME = "goblin_king_debrief"
+#: Upper bounds on generated tokens, reasoning included. The answers themselves
+#: are ~100 (director) and ~400 (debrief) tokens; the rest is headroom so a
+#: reasoning model is not cut off into an `incomplete` response.
+DIRECTOR_MAX_TOKENS = 800
+DEBRIEF_MAX_TOKENS = 4000
 
 #: The snapshot promises "last ~15 events"; anything older is dropped.
 DIRECTOR_RECENT_EVENTS = 15
@@ -115,23 +138,24 @@ class InputError(ValueError):
 
 
 class ModelOutputError(ValueError):
-    """The model did not produce a usable tool call (HTTP 502)."""
+    """The model did not produce a usable structured answer (HTTP 502)."""
 
 
 # ---------------------------------------------------------------------------
-# Tool schemas. Strict tool use + a forced tool_choice means the API can only
-# hand back JSON of this shape. No numeric/length constraints here: strict
-# schemas reject them, so bounds are enforced in validate_*() instead.
+# Response formats: Structured Outputs with `strict: true`, so the API can only
+# hand back JSON of this shape. Strict mode requires every property to be listed
+# in `required` and every object to set `additionalProperties: false`; an
+# optional value is a union with null. No numeric/length/item constraints: bounds
+# are enforced in validate_*() instead, which keeps the schemas valid for any
+# model the env points at.
 # ---------------------------------------------------------------------------
 
-DIRECTOR_TOOL: dict[str, Any] = {
-    "name": DIRECTOR_TOOL_NAME,
-    "description": (
-        "Record the Goblin King's targeting decision and the line he shouts at the heroes. "
-        "Call this exactly once per battle report."
-    ),
+DIRECTOR_FORMAT: dict[str, Any] = {
+    "type": "json_schema",
+    "name": DIRECTOR_SCHEMA_NAME,
+    "description": "The Goblin King's targeting decision and the line he shouts at the heroes.",
     "strict": True,
-    "input_schema": {
+    "schema": {
         "type": "object",
         "properties": {
             "focus": {
@@ -145,13 +169,17 @@ DIRECTOR_TOOL: dict[str, Any] = {
                 "type": "object",
                 "properties": {
                     cid: {
-                        "type": "number",
-                        "description": f"Targeting multiplier for the {CLASS_NAMES[cid]}, 0.5 to 2.0 (1.0 = neutral).",
+                        "type": ["number", "null"],
+                        "description": (
+                            f"Targeting multiplier for the {CLASS_NAMES[cid]}, 0.5 to 2.0 (1.0 = neutral), "
+                            "or null to leave it unchanged."
+                        ),
                     }
                     for cid in CLASS_IDS
                 },
+                "required": list(CLASS_IDS),
                 "additionalProperties": False,
-                "description": "Only the classes whose targeting weight should change.",
+                "description": "A number only for the classes whose targeting weight should change, null for the rest.",
             },
             "taunt": {
                 "type": "string",
@@ -167,11 +195,12 @@ DIRECTOR_TOOL: dict[str, Any] = {
     },
 }
 
-DEBRIEF_TOOL: dict[str, Any] = {
-    "name": DEBRIEF_TOOL_NAME,
-    "description": "Record the Goblin King's post-match debrief. Call this exactly once.",
+DEBRIEF_FORMAT: dict[str, Any] = {
+    "type": "json_schema",
+    "name": DEBRIEF_SCHEMA_NAME,
+    "description": "The Goblin King's post-match debrief.",
     "strict": True,
-    "input_schema": {
+    "schema": {
         "type": "object",
         "properties": {
             "summary": {
@@ -199,8 +228,8 @@ Five heroes are raiding your hoard: they carry real crates back to their base, w
 are traps packed with red goblins. You fight them with your club (sweep, slam and charge) while they smash \
 your three crystal towers, and every tower that falls makes you take more damage.
 
-Every few seconds you receive a battle report. Decide whom your club should hunt and shout one line at the \
-heroes by calling the goblin_king_decision tool.
+Every few seconds you receive a battle report. Answer with one goblin_king_decision JSON object: whom your \
+club should hunt and one line you shout at the heroes.
 
 The heroes (class id = name): mage = Elf Mage, troll = Axe Troll, brawler = Human Brawler, \
 dwarf = Dwarf Demolitionist, warrior = Dual-Blade Warrior.
@@ -209,8 +238,8 @@ How to decide:
 - focus: the class id of the hero to prioritise, or null to keep normal targeting. While anyone carries \
 a crate, focus a carrier (prefer the one closest to you). Otherwise go after a wounded hero or whoever \
 is hurting you most. Never focus a downed hero.
-- threatBias: optional per-class multipliers on your targeting score, from 0.5 (ignore) to 2.0 (hunt); \
-1.0 is neutral. Only list the classes you want to change.
+- threatBias: per-class multipliers on your targeting score, from 0.5 (ignore) to 2.0 (hunt); 1.0 is \
+neutral. Give a number only for the classes you want to change and null for every other class.
 - taunt: one line in your own voice, in English, at most 90 characters. Menacing and funny. It must name \
 a concrete fact from the report: who carries a crate, who is low on HP, how many towers fell, how many \
 crates were delivered, lives left or time remaining. Call heroes by name (for example "Dwarf" or \
@@ -227,8 +256,8 @@ DEBRIEF_SYSTEM = """\
 You are the Goblin King from "Goblin King Heist", a five-player co-op action game. Heroes raid your hoard \
 across three waves: they carry real crates back to their base (some of your crates are traps full of red \
 goblins), smash your three crystal towers to make you take more damage, and fight you and your goblins. \
-The match has just ended. Write the post-match debrief in your own voice by calling the \
-goblin_king_debrief tool.
+The match has just ended. Write the post-match debrief in your own voice as one goblin_king_debrief \
+JSON object.
 
 - summary: 3 to 5 sentences in English recapping the heist as the Goblin King: the outcome, how the waves \
 went and the heroes who mattered. Theatrical and funny; bitter if the heroes won, gloating if they lost. \
@@ -573,20 +602,54 @@ def director_prompt(snapshot: Mapping[str, Any]) -> str:
         lines.append("- none reported")
     lines += ["", "Recent events, oldest first:"]
     lines += [f"- {_describe_event(e, names)}" for e in snapshot["recent"]] or ["- none"]
-    lines += ["", f"Call {DIRECTOR_TOOL_NAME} now."]
+    lines += ["", f"Answer with the {DIRECTOR_SCHEMA_NAME} JSON object now."]
     return "\n".join(lines)
 
 
-def director_request(snapshot: Mapping[str, Any]) -> dict[str, Any]:
-    """kwargs for client.messages.create. Haiku 4.5 runs without thinking by default."""
-    return {
-        "model": DIRECTOR_MODEL,
-        "max_tokens": DIRECTOR_MAX_TOKENS,
-        "system": DIRECTOR_SYSTEM,
-        "tools": [DIRECTOR_TOOL],
-        "tool_choice": {"type": "tool", "name": DIRECTOR_TOOL_NAME},
-        "messages": [{"role": "user", "content": director_prompt(snapshot)}],
+def setting(key: str, default: str, env: Mapping[str, str] | None = None) -> str:
+    """A non-secret override from the environment (MODEL_ENV_KEYS), else the default."""
+    value = (os.environ if env is None else env).get(key)
+    return value.strip() if isinstance(value, str) and value.strip() else default
+
+
+def director_model(env: Mapping[str, str] | None = None) -> str:
+    return setting("DIRECTOR_MODEL", DEFAULT_DIRECTOR_MODEL, env)
+
+
+def debrief_model(env: Mapping[str, str] | None = None) -> str:
+    return setting("DEBRIEF_MODEL", DEFAULT_DEBRIEF_MODEL, env)
+
+
+def responses_request(
+    *, model: str, effort: str, instructions: str, prompt: str, text_format: Mapping[str, Any], max_output_tokens: int,
+) -> dict[str, Any]:
+    """kwargs for client.responses.create: one strict Structured Outputs call.
+
+    store=False: match logs are not kept on OpenAI's side for later retrieval.
+    No temperature: reasoning models reject it unless effort is "none".
+    """
+    request: dict[str, Any] = {
+        "model": model,
+        "instructions": instructions,
+        "input": prompt,
+        "text": {"format": dict(text_format)},
+        "max_output_tokens": max_output_tokens,
+        "store": False,
     }
+    if effort.lower() != OMIT_REASONING:
+        request["reasoning"] = {"effort": effort}
+    return request
+
+
+def director_request(snapshot: Mapping[str, Any], env: Mapping[str, str] | None = None) -> dict[str, Any]:
+    return responses_request(
+        model=director_model(env),
+        effort=setting("DIRECTOR_REASONING_EFFORT", DEFAULT_DIRECTOR_REASONING_EFFORT, env),
+        instructions=DIRECTOR_SYSTEM,
+        prompt=director_prompt(snapshot),
+        text_format=DIRECTOR_FORMAT,
+        max_output_tokens=DIRECTOR_MAX_TOKENS,
+    )
 
 
 def resolve_class(value: Any, snapshot: Mapping[str, Any]) -> str | None:
@@ -848,16 +911,17 @@ def default_reasoning(snapshot: Mapping[str, Any], focus: str | None) -> str:
 
 
 def validate_decision(raw: Any, snapshot: Mapping[str, Any]) -> dict[str, Any]:
-    """Model tool input -> a DirectorDecision that is safe to apply as-is.
+    """Model JSON -> a DirectorDecision that is safe to apply as-is.
 
     focus: a ClassId of a hero who is in the match and alive, else null.
-    threatBias: ClassId keys only, finite numbers clamped to [0.5, 2.0].
+    threatBias: ClassId keys only, finite numbers clamped to [0.5, 2.0]; nulls
+                (the strict schema's "leave unchanged") are dropped.
     taunt: one line, <= 90 chars, grounded in the snapshot with no false claim
            (see taunt_is_grounded), else a fact-based fallback.
     reasoning: one line, <= 140 chars.
     """
     if not isinstance(raw, Mapping):
-        raise ModelOutputError("tool input is not an object")
+        raise ModelOutputError("model output is not an object")
     focus = resolve_class(raw.get("focus"), snapshot)
     if focus is not None and not any(p["classId"] == focus and p["alive"] for p in snapshot.get("players", [])):
         focus = None
@@ -1073,26 +1137,19 @@ def debrief_prompt(request: Mapping[str, Any]) -> str:
     ]
     who = {pid: _hero_tag(p) for pid, p in by_id.items()}
     lines += [f"- {_describe_event(e, who)}" for e in key_moments(request["events"])] or ["- none recorded"]
-    lines += ["", f"Call {DEBRIEF_TOOL_NAME} now."]
+    lines += ["", f"Answer with the {DEBRIEF_SCHEMA_NAME} JSON object now."]
     return "\n".join(lines)
 
 
-def debrief_request(request: Mapping[str, Any]) -> dict[str, Any]:
-    """kwargs for client.messages.create.
-
-    Thinking is disabled explicitly: Sonnet 5 would otherwise run adaptive
-    thinking, which adds latency against the game server's 15 s budget, and
-    thinking-off + a forced tool_choice is accepted on every platform.
-    """
-    return {
-        "model": DEBRIEF_MODEL,
-        "max_tokens": DEBRIEF_MAX_TOKENS,
-        "system": DEBRIEF_SYSTEM,
-        "thinking": {"type": "disabled"},
-        "tools": [DEBRIEF_TOOL],
-        "tool_choice": {"type": "tool", "name": DEBRIEF_TOOL_NAME},
-        "messages": [{"role": "user", "content": debrief_prompt(request)}],
-    }
+def debrief_request(request: Mapping[str, Any], env: Mapping[str, str] | None = None) -> dict[str, Any]:
+    return responses_request(
+        model=debrief_model(env),
+        effort=setting("DEBRIEF_REASONING_EFFORT", DEFAULT_DEBRIEF_REASONING_EFFORT, env),
+        instructions=DEBRIEF_SYSTEM,
+        prompt=debrief_prompt(request),
+        text_format=DEBRIEF_FORMAT,
+        max_output_tokens=DEBRIEF_MAX_TOKENS,
+    )
 
 
 _SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+")
@@ -1161,7 +1218,7 @@ def resolve_player_id(value: Any, request: Mapping[str, Any]) -> str | None:
 
 
 def validate_debrief(raw: Any, request: Mapping[str, Any]) -> dict[str, Any]:
-    """Model tool input -> a DebriefPayload.
+    """Model JSON -> a DebriefPayload.
 
     summary: required, one paragraph, 3-5 sentences and <= 900 chars. Extra
              sentences are cut; a short one is padded with true fact sentences.
@@ -1169,7 +1226,7 @@ def validate_debrief(raw: Any, request: Mapping[str, Any]) -> dict[str, Any]:
     mvpPlayerId: a roster id (model pick if valid, else the stat leader).
     """
     if not isinstance(raw, Mapping):
-        raise ModelOutputError("tool input is not an object")
+        raise ModelOutputError("model output is not an object")
     summary = _fit_sentences(_limit_sentences(_one_line(raw.get("summary")), SUMMARY_MAX_SENTENCES), SUMMARY_MAX_CHARS)
     if not summary:
         raise ModelOutputError("empty summary")
@@ -1197,29 +1254,44 @@ def validate_debrief(raw: Any, request: Mapping[str, Any]) -> dict[str, Any]:
 
 # ---------------------------------------------------------------------------
 # Response parsing and the two request handlers. `client` is anything with
-# `.messages.create(**kwargs)` returning an Anthropic Message-shaped object.
+# `.responses.create(**kwargs)` returning an OpenAI Response-shaped object.
 # ---------------------------------------------------------------------------
 
 
-def extract_tool_input(response: Any, tool_name: str) -> dict[str, Any]:
-    stop_reason = _get(response, "stop_reason")
-    if stop_reason == "refusal":
-        raise ModelOutputError("model refused")
-    for block in _get(response, "content") or []:
-        if _get(block, "type") == "tool_use" and _get(block, "name") == tool_name:
-            data = _get(block, "input")
-            if isinstance(data, str):
-                try:
-                    data = json.loads(data)
-                except json.JSONDecodeError as exc:
-                    raise ModelOutputError("tool input is not valid JSON") from exc
-            if isinstance(data, Mapping):
-                return dict(data)
-            raise ModelOutputError("tool input is not an object")
-    raise ModelOutputError(f"no {tool_name} call (stop_reason={stop_reason})")
+def extract_output(response: Any) -> dict[str, Any]:
+    """The JSON object of a Structured Outputs response.
+
+    A refusal, an unfinished response (status "incomplete", e.g. the token cap)
+    or text that is not a JSON object is a ModelOutputError: none of them
+    follows the schema.
+    """
+    texts: list[str] = []
+    for item in _get(response, "output") or []:
+        if _get(item, "type") != "message":
+            continue  # reasoning items carry no answer
+        for part in _get(item, "content") or []:
+            kind = _get(part, "type")
+            if kind == "refusal":
+                raise ModelOutputError("model refused")
+            if kind == "output_text" and isinstance(_get(part, "text"), str):
+                texts.append(_get(part, "text"))
+    status = _get(response, "status")
+    if status not in (None, "completed"):
+        reason = _get(_get(response, "incomplete_details"), "reason")
+        raise ModelOutputError(f"response {status}" + (f" ({reason})" if reason else ""))
+    text = "".join(texts).strip()
+    if not text:
+        raise ModelOutputError("no output text")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ModelOutputError("output is not valid JSON") from exc
+    if not isinstance(data, Mapping):
+        raise ModelOutputError("model output is not an object")
+    return dict(data)
 
 
-def _handle(body: Any, client: Any, normalize, build_request, tool_name: str, validate) -> tuple[int, dict[str, Any]]:
+def _handle(body: Any, client: Any, normalize, build_request, validate) -> tuple[int, dict[str, Any]]:
     try:
         request = normalize(body)
     except InputError as exc:
@@ -1227,22 +1299,22 @@ def _handle(body: Any, client: Any, normalize, build_request, tool_name: str, va
     except Exception as exc:  # noqa: BLE001 - a body we cannot read is still the caller's fault
         return 400, {"error": "bad_request", "detail": f"unreadable body ({type(exc).__name__})"}
     try:
-        response = client.messages.create(**build_request(request))
+        response = client.responses.create(**build_request(request))
     except Exception as exc:  # noqa: BLE001 - any upstream failure means "no decision"
         return 503, {"error": "upstream_error", "detail": type(exc).__name__}
     try:
-        return 200, validate(extract_tool_input(response, tool_name), request)
+        return 200, validate(extract_output(response), request)
     except ModelOutputError as exc:
         return 502, {"error": "invalid_model_output", "detail": str(exc)}
     except Exception as exc:  # noqa: BLE001 - never a bare 500: the game server logs and falls back
-        return 502, {"error": "invalid_model_output", "detail": f"unusable tool input ({type(exc).__name__})"}
+        return 502, {"error": "invalid_model_output", "detail": f"unusable model output ({type(exc).__name__})"}
 
 
 def handle_director(body: Any, client: Any) -> tuple[int, dict[str, Any]]:
     """DirectorSnapshot JSON -> (HTTP status, DirectorDecision or error)."""
-    return _handle(body, client, normalize_snapshot, director_request, DIRECTOR_TOOL_NAME, validate_decision)
+    return _handle(body, client, normalize_snapshot, director_request, validate_decision)
 
 
 def handle_debrief(body: Any, client: Any) -> tuple[int, dict[str, Any]]:
     """DebriefRequest JSON -> (HTTP status, DebriefPayload or error)."""
-    return _handle(body, client, normalize_debrief_request, debrief_request, DEBRIEF_TOOL_NAME, validate_debrief)
+    return _handle(body, client, normalize_debrief_request, debrief_request, validate_debrief)

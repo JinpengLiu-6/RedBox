@@ -1,18 +1,18 @@
-"""Debrief: DebriefRequest -> DebriefPayload through a fake Anthropic client."""
+"""Debrief: DebriefRequest -> DebriefPayload through a fake OpenAI client."""
 
 from __future__ import annotations
 
 import json
 
 import goblin_king as gk
-from fakes import FakeClient, text_message, tool_message
+from fakes import FakeClient, json_response, refusal_response, text_response
 
 TESS = "Xk3fQ9aLm"      # dwarf, 3 deliveries: the stat leader in the fixture
 OLEG = "Lm0vB4sNd"      # brawler, killed the Goblin King
 
 
 def debrief(request: dict, model_output) -> tuple[int, dict, FakeClient]:
-    client = FakeClient(tool_message(gk.DEBRIEF_TOOL_NAME, model_output))
+    client = FakeClient(json_response(model_output))
     status, payload = gk.handle_debrief(request, client)
     return status, payload, client
 
@@ -39,11 +39,26 @@ def test_golden_path_fixture_round_trips(debrief_fixture):
     assert set(payload) == {"summary", "highlights", "mvpPlayerId"}
 
     (request,) = client.calls
-    assert request["model"] == "claude-sonnet-5"
-    assert request["tools"] == [gk.DEBRIEF_TOOL] and request["tools"][0]["strict"] is True
-    assert request["tool_choice"] == {"type": "tool", "name": gk.DEBRIEF_TOOL_NAME}
-    assert request["thinking"] == {"type": "disabled"}
-    assert "temperature" not in request  # Sonnet 5 rejects sampling params
+    assert set(request) == {"model", "instructions", "input", "text", "reasoning", "max_output_tokens", "store"}
+    assert request["model"] == gk.DEFAULT_DEBRIEF_MODEL == "gpt-6-sol"
+    assert request["text"] == {"format": gk.DEBRIEF_FORMAT}
+    assert request["text"]["format"]["type"] == "json_schema" and request["text"]["format"]["strict"] is True
+    assert request["text"]["format"]["name"] == gk.DEBRIEF_SCHEMA_NAME
+    assert request["reasoning"] == {"effort": "low"}
+    assert request["store"] is False
+    assert "temperature" not in request  # reasoning models reject sampling params
+    assert "Goblin King" in request["instructions"] and "Stat leader: Tess" in request["input"]
+
+
+def test_debrief_model_and_effort_come_from_the_environment(debrief_fixture, monkeypatch):
+    output = {"summary": "One. Two. Three.", "highlights": [], "mvpPlayerId": TESS}
+    monkeypatch.setenv("DEBRIEF_MODEL", "gpt-test-debrief")
+    monkeypatch.setenv("DEBRIEF_REASONING_EFFORT", "medium")
+    monkeypatch.setenv("DIRECTOR_MODEL", "gpt-test-director")  # the director setting never leaks in
+    _, _, client = debrief(debrief_fixture, output)
+    (request,) = client.calls
+    assert (request["model"], request["reasoning"]) == ("gpt-test-debrief", {"effort": "medium"})
+    assert request["max_output_tokens"] == gk.DEBRIEF_MAX_TOKENS
 
 
 def test_prompt_is_a_fact_digest_not_a_raw_dump(debrief_fixture):
@@ -197,7 +212,7 @@ def test_backend_shaped_log_gives_true_totals_and_highlights():
     assert roster and not any("towers destroyed" in line or "King kills" in line for line in roster)
     assert "Tess (Dwarf) opened a trap crate, releasing 2 goblins" in prompt
 
-    status, payload = gk.handle_debrief(BACKEND_SHAPED, FakeClient(tool_message(gk.DEBRIEF_TOOL_NAME, {
+    status, payload = gk.handle_debrief(BACKEND_SHAPED, FakeClient(json_response({
         "summary": "Ha. Ha. Ha.", "highlights": [], "mvpPlayerId": "",
     })))
     assert status == 200
@@ -246,9 +261,12 @@ def test_local_mvp_ranks_deliveries_then_credited_kills_then_abilities_then_fewe
 
 def test_unusable_output_is_rejected(debrief_fixture):
     for response in (
-        tool_message(gk.DEBRIEF_TOOL_NAME, {"summary": "   ", "highlights": ["a", "b", "c"], "mvpPlayerId": TESS}),
-        tool_message(gk.DEBRIEF_TOOL_NAME, "not json {"),
-        text_message("Once upon a time..."),
+        json_response({"summary": "   ", "highlights": ["a", "b", "c"], "mvpPlayerId": TESS}),
+        json_response("a JSON string, not an object"),
+        text_response("not json {"),
+        text_response("Once upon a time..."),
+        refusal_response(),
+        text_response('{"summary": "Ha', status="incomplete", reason="max_output_tokens"),
     ):
         status, payload = gk.handle_debrief(debrief_fixture, FakeClient(response))
         assert status == 502 and payload["error"] == "invalid_model_output"

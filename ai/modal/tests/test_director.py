@@ -1,4 +1,4 @@
-"""Director: DirectorSnapshot -> DirectorDecision through a fake Anthropic client."""
+"""Director: DirectorSnapshot -> DirectorDecision through a fake OpenAI client."""
 
 from __future__ import annotations
 
@@ -7,13 +7,19 @@ import json
 import pytest
 
 import goblin_king as gk
-from fakes import FakeClient, text_message, tool_message
+from fakes import FakeClient, json_response, reasoning_only_response, refusal_response, text_response
 
 DECISION_KEYS = {"focus", "threatBias", "taunt", "reasoning"}
+REQUEST_KEYS = {"model", "instructions", "input", "text", "reasoning", "max_output_tokens", "store"}
+
+
+def full_bias(**changed: float) -> dict:
+    """threatBias as the strict schema returns it: every class, null = unchanged."""
+    return {cid: changed.get(cid) for cid in gk.CLASS_IDS}
 
 
 def decide(snapshot: dict, model_output) -> tuple[int, dict, FakeClient]:
-    client = FakeClient(tool_message(gk.DIRECTOR_TOOL_NAME, model_output))
+    client = FakeClient(json_response(model_output))
     status, payload = gk.handle_director(snapshot, client)
     return status, payload, client
 
@@ -21,25 +27,60 @@ def decide(snapshot: dict, model_output) -> tuple[int, dict, FakeClient]:
 def test_golden_path_fixture_round_trips(snapshot_fixture):
     model_output = {
         "focus": "dwarf",
-        "threatBias": {"dwarf": 1.8, "troll": 0.7},
+        "threatBias": full_bias(dwarf=1.8, troll=0.7),
         "taunt": "Dwarf, that crate is MINE. Two towers down won't save your stubby legs!",
         "reasoning": "Dwarf carries a crate 212 px away at 38% HP; hunt the carrier.",
     }
     status, decision, client = decide(snapshot_fixture, model_output)
 
     assert status == 200
-    assert decision == model_output  # valid output passes through untouched
+    # Valid output passes through untouched; only the schema's "unchanged" nulls are dropped.
+    assert decision == {**model_output, "threatBias": {"troll": 0.7, "dwarf": 1.8}}
     assert json.loads(json.dumps(decision)) == decision
     assert set(decision) == DECISION_KEYS
 
-    # One forced, strict tool call to Haiku 4.5 - the only way to get JSON back.
+    # One strict Structured Outputs call to the default low-latency model.
     (request,) = client.calls
-    assert request["model"] == "claude-haiku-4-5-20251001"
-    assert request["tools"] == [gk.DIRECTOR_TOOL] and request["tools"][0]["strict"] is True
-    assert request["tool_choice"] == {"type": "tool", "name": gk.DIRECTOR_TOOL_NAME}
-    assert "thinking" not in request and "temperature" not in request
-    assert request["max_tokens"] <= 1024
-    assert "Goblin King" in request["system"] and "90 characters" in request["system"]
+    assert set(request) == REQUEST_KEYS
+    assert request["model"] == gk.DEFAULT_DIRECTOR_MODEL == "gpt-6-luna"
+    assert request["text"] == {"format": gk.DIRECTOR_FORMAT}
+    text_format = request["text"]["format"]
+    assert text_format["type"] == "json_schema" and text_format["strict"] is True
+    assert text_format["name"] == gk.DIRECTOR_SCHEMA_NAME
+    assert request["reasoning"] == {"effort": "none"}  # latency-critical: no reasoning tokens
+    assert request["store"] is False
+    assert "temperature" not in request and "tools" not in request
+    assert request["max_output_tokens"] <= 1024
+    assert "Goblin King" in request["instructions"] and "90 characters" in request["instructions"]
+    assert "Carrying a crate: Dwarf Demolitionist." in request["input"]
+
+
+def test_model_and_reasoning_effort_come_from_the_environment(snapshot_fixture, monkeypatch):
+    output = {"focus": "dwarf", "threatBias": full_bias(), "taunt": "Dwarf, drop my crate!", "reasoning": "x"}
+    monkeypatch.setenv("DIRECTOR_MODEL", "  gpt-test-director  ")
+    monkeypatch.setenv("DIRECTOR_REASONING_EFFORT", "low")
+    monkeypatch.setenv("DEBRIEF_MODEL", "gpt-test-debrief")  # the debrief setting never leaks in
+    _, _, client = decide(snapshot_fixture, output)
+    (request,) = client.calls
+    assert request["model"] == "gpt-test-director" == gk.director_model()
+    assert request["reasoning"] == {"effort": "low"}
+
+    monkeypatch.setenv("DIRECTOR_REASONING_EFFORT", "omit")  # for models without a reasoning parameter
+    _, _, client = decide(snapshot_fixture, output)
+    assert "reasoning" not in client.calls[0] and client.calls[0]["text"]["format"]["strict"] is True
+
+    monkeypatch.setenv("DIRECTOR_MODEL", "   ")  # blank means default
+    monkeypatch.delenv("DIRECTOR_REASONING_EFFORT")
+    _, _, client = decide(snapshot_fixture, output)
+    assert client.calls[0]["model"] == gk.DEFAULT_DIRECTOR_MODEL
+    assert client.calls[0]["reasoning"] == {"effort": gk.DEFAULT_DIRECTOR_REASONING_EFFORT}
+
+
+def test_threat_bias_nulls_mean_unchanged(snapshot_fixture):
+    status, decision, _ = decide(snapshot_fixture, {
+        "focus": None, "threatBias": full_bias(), "taunt": "Dwarf, drop my crate!", "reasoning": "x",
+    })
+    assert status == 200 and decision["threatBias"] == {} and decision["focus"] is None
 
 
 def test_prompt_carries_the_concrete_facts_a_taunt_needs(snapshot_fixture):
@@ -242,15 +283,21 @@ def test_reasoning_and_taunt_are_single_capped_lines_without_pictographs(snapsho
 
 
 def test_malformed_model_output_is_rejected(snapshot_fixture):
-    for response in (
-        tool_message(gk.DIRECTOR_TOOL_NAME, ["not", "an", "object"]),
-        tool_message("some_other_tool", {"focus": "dwarf"}),
-        text_message("I refuse to be structured."),
-        tool_message(gk.DIRECTOR_TOOL_NAME, {"focus": "dwarf"}, stop_reason="refusal"),
-    ):
+    cut_off = '{"focus": "dwarf", "threatBias": {"mage": null, "tro'
+    cases = {
+        "model output is not an object": json_response(["not", "an", "object"]),
+        "output is not valid JSON": text_response("I refuse to be structured."),
+        "model refused": refusal_response(),
+        "response incomplete (max_output_tokens)": text_response(cut_off, status="incomplete", reason="max_output_tokens"),
+        "response incomplete (content_filter)": text_response('{"focus": null}', status="incomplete", reason="content_filter"),
+        "no output text": text_response("   "),
+    }
+    for detail, response in cases.items():
         status, payload = gk.handle_director(snapshot_fixture, FakeClient(response))
-        assert status == 502 and payload["error"] == "invalid_model_output"
+        assert (status, payload) == (502, {"error": "invalid_model_output", "detail": detail})
         assert not DECISION_KEYS & set(payload)
+    status, payload = gk.handle_director(snapshot_fixture, FakeClient(reasoning_only_response()))
+    assert (status, payload["detail"]) == (502, "response incomplete (max_output_tokens)")
 
 
 def test_upstream_failure_and_bad_input_never_reach_the_model(snapshot_fixture):
@@ -273,7 +320,7 @@ def test_unreadable_values_are_dropped_instead_of_crashing():
     assert snap["elapsedMs"] == 0 and snap["wave"] == 1
     assert snap["recent"] == [{"type": "wave_start", "atMs": 0}]
 
-    client = FakeClient(tool_message(gk.DIRECTOR_TOOL_NAME, {"focus": None, "threatBias": {}, "taunt": "", "reasoning": ""}))
+    client = FakeClient(json_response({"focus": None, "threatBias": full_bias(), "taunt": "", "reasoning": ""}))
     status, _ = gk.handle_director({"recent": [{"type": ["x"]}], "elapsedMs": 10**400}, client)
     assert status == 200
 
@@ -282,17 +329,15 @@ def test_unexpected_errors_map_to_http_errors_not_500s(snapshot_fixture):
     def broken(_body):
         raise KeyError("boom")
 
-    status, payload = gk._handle({}, FakeClient(), broken, gk.director_request, gk.DIRECTOR_TOOL_NAME, gk.validate_decision)
+    status, payload = gk._handle({}, FakeClient(), broken, gk.director_request, gk.validate_decision)
     assert (status, payload["error"]) == (400, "bad_request")
 
     def bad_validate(_raw, _request):
         raise TypeError("boom")
 
-    client = FakeClient(tool_message(gk.DIRECTOR_TOOL_NAME, {}))
-    status, payload = gk._handle(
-        snapshot_fixture, client, gk.normalize_snapshot, gk.director_request, gk.DIRECTOR_TOOL_NAME, bad_validate,
-    )
-    assert (status, payload["error"]) == (502, "invalid_model_output")
+    client = FakeClient(json_response({}))
+    status, payload = gk._handle(snapshot_fixture, client, gk.normalize_snapshot, gk.director_request, bad_validate)
+    assert (status, payload) == (502, {"error": "invalid_model_output", "detail": "unusable model output (TypeError)"})
 
 
 def test_junk_snapshot_fields_are_coerced_before_prompting():

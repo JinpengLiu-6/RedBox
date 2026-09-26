@@ -2,7 +2,10 @@
 
 - Modal is pointed at a config file that does not exist, so importing app.py
   never loads the developer's Modal profile or token.
-- Every test runs with socket connects disabled, so a real Anthropic or Modal
+- OpenAI credentials, endpoint and model overrides are removed from the test
+  process env (never read), so no real key can be used and a developer's
+  DIRECTOR_MODEL cannot change what the tests expect.
+- Every test runs with socket connects disabled, so a real OpenAI or Modal
   call fails loudly instead of spending money.
 """
 
@@ -26,6 +29,14 @@ os.environ["MODAL_CONFIG_PATH"] = str(Path(tempfile.gettempdir()) / "redbox-ai-t
 for path in (str(MODAL_DIR), str(TESTS_DIR)):
     if path not in sys.path:
         sys.path.insert(0, path)
+
+#: Dropped unread. The model keys mirror goblin_king.MODEL_ENV_KEYS (test_app checks it).
+SCRUBBED_ENV = (
+    "OPENAI_API_KEY", "OPENAI_ADMIN_KEY", "OPENAI_BASE_URL", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID",
+    "DIRECTOR_MODEL", "DEBRIEF_MODEL", "DIRECTOR_REASONING_EFFORT", "DEBRIEF_REASONING_EFFORT",
+)
+for key in SCRUBBED_ENV:
+    os.environ.pop(key, None)
 
 
 @pytest.fixture(autouse=True, scope="session")
