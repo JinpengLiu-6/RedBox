@@ -55,6 +55,8 @@ const GIVE_UP_AFTER_MS = 6_000;
 const GIVE_UP_COOLDOWN_MS = 15_000;
 /** A retreating bot is safe again once nothing hostile is this close. */
 const RETREAT_SAFE_RADIUS_PX = 400;
+/** A retreating bot that has not been hit for this long is in a standoff, not in danger. */
+const RETREAT_STANDOFF_MS = 5_000;
 /** How far ahead a sidestep is tested for room. */
 const SIDESTEP_PROBE_PX = PLAYER.RADIUS * 2;
 
@@ -73,6 +75,8 @@ interface Brain {
   goal: Goal;
   nextDecisionAt: number;
   retreating: boolean;
+  lastHp: number;
+  hurtAtMs: number;
   /** Where the bot was when it last physically moved, for the sidestep timer. */
   moveAnchor: Vec2;
   movedAtMs: number;
@@ -98,7 +102,7 @@ export function createBotsSystem(): System {
     let b = brains.get(id);
     if (!b) {
       b = {
-        goal: { kind: 'idle' }, nextDecisionAt: 0, retreating: false,
+        goal: { kind: 'idle' }, nextDecisionAt: 0, retreating: false, lastHp: NaN, hurtAtMs: 0,
         moveAnchor: { x: NaN, y: NaN }, movedAtMs: 0,
         steerTarget: { x: NaN, y: NaN }, roamAnchor: { x: NaN, y: NaN },
         bestDist: Infinity, progressAtMs: 0,
@@ -184,7 +188,10 @@ export function createBotsSystem(): System {
     const hpFrac = p.maxHp > 0 ? p.hp / p.maxHp : 1;
     // Heroes never regenerate, so a retreat that waits for HP would last the
     // whole wave: being out of danger is enough to go back to work.
-    const threatened = hostilesNear(w, p, RETREAT_SAFE_RADIUS_PX).length > 0;
+    if (p.hp < brain.lastHp) brain.hurtAtMs = w.now;
+    brain.lastHp = p.hp;
+    const threatened = hostilesNear(w, p, RETREAT_SAFE_RADIUS_PX).length > 0
+      && w.now - brain.hurtAtMs < RETREAT_STANDOFF_MS;
     if (brain.retreating && (hpFrac >= RETREAT_RECOVER_HP_FRAC || !threatened)) brain.retreating = false;
     else if (!brain.retreating && hpFrac < RETREAT_HP_FRAC && threatened) brain.retreating = true;
 

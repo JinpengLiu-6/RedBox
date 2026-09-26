@@ -270,3 +270,20 @@ test('a bot wedged on a wall corner sidesteps instead of pushing into it forever
   assert.ok(h.world.distance(bot, start) > 100, `bot got moving (moved ${h.world.distance(bot, start).toFixed(0)}px)`);
   assert.ok(h.world.distance(bot, crate) < h.world.distance(start, crate), 'and made progress toward the crate');
 });
+
+test('a hurt bot in a standoff with a boss it cannot shake goes back to work instead of idling all wave', () => {
+  const { h } = make();
+  const bot = h.addPlayer('troll', { ...BASE, bot: true });
+  h.start();
+  for (const id of [...h.state.boxes.keys()]) h.state.boxes.delete(id);
+  bot.hp = Math.floor(bot.maxHp * 0.2);
+  // A boss parked 300px from the base that never hits anyone (no boss system here).
+  const boss = h.state.boss;
+  boss.alive = true; boss.hp = 1000; boss.x = BASE.x + 300; boss.y = BASE.y;
+  const crate = addBox(h, 'work', { x: BASE.x + 20, y: BASE.y - 200 });
+
+  h.seconds(4);
+  assert.ok(h.world.distance(bot, BASE) < 20, 'stays home while it still feels threatened');
+  h.seconds(3);
+  assert.ok(h.world.distance(bot, crate) < 60, `standoff over: works the crate while still hurt (${h.world.distance(bot, crate).toFixed(0)}px)`);
+});
