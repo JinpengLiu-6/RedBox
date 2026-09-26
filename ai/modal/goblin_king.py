@@ -247,7 +247,9 @@ a concrete fact from the report: who carries a crate, who is low on HP, how many
 crates were delivered, lives left or time remaining. Call heroes by name (for example "Dwarf" or \
 "Elf Mage"), never by player id. Every number you say must match the report exactly, and only accuse a \
 hero of carrying a crate if the report says so. Never repeat a line you already said in the recent \
-events. No emojis, hashtags, stage directions or quotation marks.
+events. No emojis, hashtags, stage directions or quotation marks. Never mention pixels, coordinates, \
+distances as numbers, percentages of threat or any other game-engine measurement: you are a goblin king, \
+not a debugger.
 - reasoning: one short plain-English sentence, out of character, explaining the choice for an \
 "AI intent" panel. At most 140 characters.
 
@@ -381,6 +383,31 @@ def _clock(ms: float) -> str:
 
 def _pct_label(share: float) -> str:
     return f"{round(share * 100)}%"
+
+
+#: Distances and threat shares go to the model as words, never numbers: given
+#: "470 px from you" it would say "you're 470 pixels away", which breaks the
+#: fiction. Bands in world pixels (a hero is ~30 px, the boss's slam ~150 px).
+DISTANCE_BANDS: tuple[tuple[float, str], ...] = (
+    (160, "right next to you"),
+    (420, "close to you"),
+    (900, "across the arena from you"),
+)
+
+
+def _distance_label(px: float) -> str:
+    for limit, words in DISTANCE_BANDS:
+        if px <= limit:
+            return words
+    return "far away from you"
+
+
+def _threat_label(share: float) -> str:
+    if share >= 0.4:
+        return "hurting you the most"
+    if share >= 0.15:
+        return "hurting you a little"
+    return "barely hurting you"
 
 
 def _plural(n: int, word: str, plural: str | None = None) -> str:
@@ -597,7 +624,7 @@ def director_prompt(snapshot: Mapping[str, Any]) -> str:
         lines.append(
             f"- {p['classId']} ({CLASS_NAMES[p['classId']]}): {_pct_label(p['hpPct'])} HP, "
             f"{_plural(p['lives'], 'life', 'lives')} left, {'alive' if p['alive'] else 'down'}, "
-            f"{round(p['distanceToBoss'])} px from you, {_pct_label(p['threatShare'])} of your threat"
+            f"{_distance_label(p['distanceToBoss'])}, {_threat_label(p['threatShare'])}"
             + (", " + ", ".join(tags) if tags else "")
         )
     if not players:
@@ -788,7 +815,6 @@ def _taunt_claims_hold(tokens: Sequence[tuple[str, Any]], snapshot: Mapping[str,
         return (
             any(n in values for values in counts.values())
             or near(n, pcts, TAUNT_PCT_TOLERANCE)
-            or near(n, [p["distanceToBoss"] for p in players], 1)
             or n == TOWER_COUNT
         )
 
