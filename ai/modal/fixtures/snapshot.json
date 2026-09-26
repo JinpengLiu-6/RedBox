@@ -1,0 +1,36 @@
+{
+  "elapsedMs": 251400,
+  "timeRemainingMs": 168600,
+  "wave": 2,
+  "bossAlive": true,
+  "bossHpPct": 0.64,
+  "bossDamageMult": 1.5,
+  "towersDestroyed": 2,
+  "cratesDelivered": 1,
+  "cratesRequired": 2,
+  "carriers": ["Xk3fQ9aLm"],
+  "players": [
+    {"id": "Xk3fQ9aLm", "classId": "dwarf", "hpPct": 0.38, "lives": 2, "alive": true, "distanceToBoss": 212, "threatShare": 0.41, "carrying": true},
+    {"id": "p7Rt2WqZc", "classId": "mage", "hpPct": 0.22, "lives": 1, "alive": true, "distanceToBoss": 344, "threatShare": 0.27, "carrying": false},
+    {"id": "bot_troll", "classId": "troll", "hpPct": 0.81, "lives": 3, "alive": true, "distanceToBoss": 96, "threatShare": 0.18, "carrying": false},
+    {"id": "Lm0vB4sNd", "classId": "brawler", "hpPct": 0, "lives": 1, "alive": false, "distanceToBoss": 610, "threatShare": 0, "carrying": false},
+    {"id": "bot_warrior", "classId": "warrior", "hpPct": 0.67, "lives": 2, "alive": true, "distanceToBoss": 158, "threatShare": 0.14, "carrying": false}
+  ],
+  "recent": [
+    {"type": "wave_start", "atMs": 214800, "value": 2},
+    {"type": "ability_used", "atMs": 219350, "playerId": "p7Rt2WqZc", "classId": "mage", "label": "frost_wave"},
+    {"type": "trap_triggered", "atMs": 222100, "playerId": "Lm0vB4sNd", "classId": "brawler", "boxId": "w2c7"},
+    {"type": "goblins_spawned", "atMs": 222100, "boxId": "w2c7", "value": 2},
+    {"type": "crystal_destroyed", "atMs": 226900, "playerId": "bot_troll", "classId": "troll", "crystalId": "tower0"},
+    {"type": "box_picked", "atMs": 229450, "playerId": "bot_warrior", "classId": "warrior", "boxId": "w2c3"},
+    {"type": "box_delivered", "atMs": 236700, "playerId": "bot_warrior", "classId": "warrior", "boxId": "w2c3"},
+    {"type": "crystal_destroyed", "atMs": 240050, "playerId": "Xk3fQ9aLm", "classId": "dwarf", "crystalId": "tower2"},
+    {"type": "ability_used", "atMs": 241300, "playerId": "Xk3fQ9aLm", "classId": "dwarf", "label": "mine"},
+    {"type": "director_decision", "atMs": 242000, "classId": "mage", "label": "Two towers down? Cute. Elf Mage, your frost tickles my toes."},
+    {"type": "box_picked", "atMs": 245600, "playerId": "Xk3fQ9aLm", "classId": "dwarf", "boxId": "w2c11"},
+    {"type": "boss_target_changed", "atMs": 246100, "targetId": "Xk3fQ9aLm", "classId": "dwarf"},
+    {"type": "boss_attack", "atMs": 248000, "targetId": "Lm0vB4sNd", "label": "slam", "value": 96},
+    {"type": "player_died", "atMs": 248000, "playerId": "Lm0vB4sNd", "classId": "brawler"},
+    {"type": "boss_attack", "atMs": 249800, "targetId": "p7Rt2WqZc", "label": "sweep", "value": 66}
+  ]
+}
