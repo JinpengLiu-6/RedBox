@@ -1,5 +1,11 @@
 {
   "extends": "../tsconfig.base.json",
-  "compilerOptions": { "types": ["vite/client"] },
-  "include": ["src/**/*.ts"]
+  "compilerOptions": {
+    "types": ["vite/client"],
+    "jsx": "react-jsx",
+    "verbatimModuleSyntax": false,
+    "noUncheckedIndexedAccess": false,
+    "moduleResolution": "bundler"
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
 }

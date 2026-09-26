@@ -1,23 +1,18 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <title>RedBox — seam debug view</title>
-    <style>
-      body { margin: 0; background: #0b0f17; color: #e2e8f0;
-             font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
-      #hud { position: fixed; top: 12px; left: 12px; z-index: 2; white-space: pre;
-             background: rgba(15, 23, 42, .85); padding: 8px 12px; border-radius: 8px; }
-      #taunt { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-               background: rgba(15, 23, 42, .85); padding: 6px 12px; border-radius: 8px;
-               color: #fca5a5; font-size: 16px; text-align: center; }
-      canvas { display: block; }
-    </style>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Goblin King Heist</title>
+    <meta name="description" content="Playable five-player cooperative 2D top-down action game. Heist treasure crates, destroy ancient towers, survive goblin traps, and battle the Goblin King!" />
+    <meta property="og:title" content="Goblin King Heist" />
+    <meta property="og:description" content="Playable five-player cooperative 2D top-down action game. Heist treasure crates, destroy ancient towers, survive goblin traps, and battle the Goblin King!" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
   </head>
   <body>
-    <div id="hud"></div>
-    <div id="taunt"></div>
-    <canvas id="c"></canvas>
-    <script type="module" src="/src/main.ts"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
+
