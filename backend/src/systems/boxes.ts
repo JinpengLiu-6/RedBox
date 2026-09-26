@@ -7,10 +7,13 @@
  * Invariants this system guarantees:
  *  - exactly realCrates + trapCrates crates per wave, seeded placement, random truth;
  *  - one interact per player per tick, one resolution per crate per tick, first
- *    command in arrival order wins;
+ *    command in arrival order wins; every press aims at the crates as they stood
+ *    when the tick began, so a press that loses a race does nothing (it never
+ *    falls through to the next crate in range);
  *  - a trap triggers exactly once and never becomes inventory;
  *  - a real crate is never destroyed: a downed or disconnected carrier drops it on
  *    walkable ground that is reachable from the base;
+ *  - a carrier inside the base always delivers (pressing F there never drops);
  *  - each delivered crate is counted exactly once.
  */
 
@@ -26,6 +29,13 @@ const TRAP_SPAWN_SPREAD_PX = 20;
 const DROP_SEARCH_MAX_TILES = 12;
 
 type DropReason = 'interact' | 'downed' | 'disconnected' | 'lost';
+
+/** A pickable crate and where it stood when this tick's interacts began. */
+type Candidate = { box: Box; x: number; y: number };
+
+function inBase(w: World, p: Vec2) {
+  return w.distance(p, MAP.BASE) <= MAP.BASE.radius;
+}
 
 /** Small deterministic PRNG (mulberry32). Placement only, never identities. */
 function seededRandom(seed: number): () => number {
@@ -164,34 +174,46 @@ export function createBoxesSystem(): System {
     return (box.state === BoxState.Idle || box.state === BoxState.Dropped) && !spent.has(box.id);
   }
 
-  /** The crate this interact resolves: an explicit in-range target, else the nearest. */
-  function crateFor(w: World, p: Player, cmd: Command<'interact'>, claimed: Set<string>): Box | undefined {
-    const inRange = (w.query(p, CRATES.PICKUP_RADIUS, { kinds: ['box'] }) as Box[])
-      .filter((b) => isPickable(b) && !claimed.has(b.id));
+  /**
+   * The crate this interact aims at, chosen from the tick-start snapshot: an explicit
+   * in-range target, else the nearest. It may already be claimed by an earlier press.
+   */
+  function crateFor(w: World, p: Player, cmd: Command<'interact'>, open: Candidate[]): Box | undefined {
+    const inRange = open.filter((c) => w.distance(p, c) <= CRATES.PICKUP_RADIUS);
     const targetId = cmd.payload?.targetId;
     if (targetId) {
-      const hit = inRange.find((b) => b.id === targetId);
-      if (hit) return hit;
+      const hit = inRange.find((c) => c.box.id === targetId);
+      if (hit) return hit.box;
       // The player explicitly aimed at a revive pickup: that one belongs to lives.ts.
       if (w.findEntity(targetId)?.kind === 'revive') return undefined;
     }
-    let best: Box | undefined;
+    let best: Candidate | undefined;
     let bestD = Infinity;
-    for (const b of inRange) {
-      const d = w.distance(p, b);
-      if (d < bestD) { bestD = d; best = b; }
+    for (const c of inRange) {
+      const d = w.distance(p, c);
+      if (d < bestD) { bestD = d; best = c; }
     }
-    return best;
+    return best?.box;
   }
 
   function resolveInteracts(w: World) {
     const s = w.state;
+    const cmds = w.commands('interact');
+    if (cmds.length === 0) return;
     /** Players already served this tick: one action each, so nobody grabs two. */
     const acted = new Set<string>();
     /** Crates already resolved this tick: the first command in arrival order wins. */
     const claimed = new Set<string>();
+    /**
+     * Every press aims at the crates as they stood when the tick began. A crate that
+     * an earlier press picked up, broke or dropped this tick stays the loser's target,
+     * so the losing press is dropped instead of landing on another crate (maybe a trap).
+     */
+    const open: Candidate[] = [...s.boxes.values()]
+      .filter(isPickable)
+      .map((box) => ({ box, x: box.x, y: box.y }));
 
-    for (const cmd of w.commands('interact')) {
+    for (const cmd of cmds) {
       if (acted.has(cmd.playerId)) continue;
       const p = s.players.get(cmd.playerId);
       if (!p || isCarrierGone(p)) continue;
@@ -199,8 +221,15 @@ export function createBoxesSystem(): System {
       if (p.carryingBoxId !== '') {
         const box = s.boxes.get(p.carryingBoxId);
         if (box && box.state === BoxState.Carried && box.carriedBy === p.id) {
-          drop(w, box, p, p, 'interact');
           claimed.add(box.id);
+          if (inBase(w, p)) {
+            // F on arrival in the base still scores: the base always delivers.
+            box.x = p.x;
+            box.y = p.y;
+            deliver(w, box, p);
+          } else {
+            drop(w, box, p, p, 'interact');
+          }
         } else {
           p.carryingBoxId = '';
         }
@@ -209,10 +238,12 @@ export function createBoxesSystem(): System {
       }
 
       // No crate in range: leave the command to lives.ts (revive pickups).
-      const box = crateFor(w, p, cmd, claimed);
+      const box = crateFor(w, p, cmd, open);
       if (!box) continue;
-      claimed.add(box.id);
       acted.add(p.id);
+      // Lost the race for this crate: the press does nothing this tick.
+      if (claimed.has(box.id)) continue;
+      claimed.add(box.id);
       if (w.isBoxReal(box.id)) pickUp(w, box, p);
       else triggerTrap(w, box, p);
     }
@@ -232,7 +263,7 @@ export function createBoxesSystem(): System {
       const p = carrier!;
       if (box.x !== p.x) box.x = p.x;
       if (box.y !== p.y) box.y = p.y;
-      if (w.distance(p, MAP.BASE) <= MAP.BASE.radius) deliver(w, box, p);
+      if (inBase(w, p)) deliver(w, box, p);
     }
 
     // A player can only carry a crate that says it is carried by them.
