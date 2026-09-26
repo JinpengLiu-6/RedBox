@@ -2,13 +2,14 @@
 
 The optional AI showcase layer for **Goblin King Heist**. It is never needed to
 play: the game server only calls these endpoints when `DIRECTOR_URL` /
-`DEBRIEF_URL` are set, and it falls back to its own FSM and a local recap on
-any timeout or non-200 answer.
+`DEBRIEF_URL` / `VOICE_URL` are set, and it falls back to its own FSM, a local
+recap and text-only taunts on any timeout or non-200 answer.
 
 | Endpoint | In (`shared/src/events.ts`) | Out | Model (env override) |
 |---|---|---|---|
 | `director` (POST) | `DirectorSnapshot` | `DirectorDecision` `{focus, threatBias, taunt, reasoning}` | `gpt-6-luna`, reasoning effort `none` (`DIRECTOR_MODEL`), kept warm (`min_containers=1`) |
 | `debrief` (POST) | `DebriefRequest` | `DebriefPayload` `{summary, highlights[3], mvpPlayerId}` (`shared/src/messages.ts`) | `gpt-6-luna`, reasoning effort `low` (`DEBRIEF_MODEL`) |
+| `voice` (POST, needs header `x-voice-token`) | `{text, kind: "taunt" \| "recap"}` | raw Ogg Opus bytes (`audio/ogg`) | Gradium TTS, voice "Garrett" (`GRADIUM_VOICE_ID`) |
 
 ## Models
 
@@ -102,15 +103,96 @@ Status codes:
 Unknown or malformed fields inside a valid object are coerced or dropped, never
 forwarded. The game server treats every non-200 as "no AI this time".
 
+## Voice (Gradium text-to-speech)
+
+The game server sends each new LLM taunt (and the end-of-match recap) to
+`voice` and broadcasts the audio to every browser. Text is always shown first.
+The audio is a bonus, and any non-200 answer just means "no voice this time".
+All logic lives in `voice.py`; `app.py` only wires it to the endpoint.
+
+**Request.** `POST` JSON `{"text": string, "kind": "taunt" | "recap"}` with the
+header `x-voice-token: <VOICE_TOKEN>`. The endpoint turns text into billed audio,
+so it is never open. The token is compared in constant time
+(`hmac.compare_digest`). A missing or wrong token gets `401` before the body is
+even read, and an empty `VOICE_TOKEN` in the container rejects everyone.
+
+**Sanitising.** The text is NFKC-normalised. `<` and `>` are removed, including
+their full-width look-alikes, which blocks Gradium tag injection such as
+`<break time="9s"/>`. Control and format characters are dropped, and whitespace
+collapses to single spaces. The text is then capped at **120 characters for a
+taunt** and **600 for a recap**. The cut falls at a sentence end or word
+boundary when one exists in the second half of the budget. Text that ends up
+empty is a `422`.
+
+**Upstream.** `POST https://api.gradium.ai/api/post/speech/tts` with headers
+`x-api-key` and `Content-Type: application/json`, and the body
+
+```json
+{"text": "...", "voice_id": "POBHtemksfWQbng0", "output_format": "opus",
+ "only_audio": true, "model_name": "default", "json_config": "{\"padding_bonus\": 0.5}"}
+```
+
+`json_config` is a JSON document inside a string, as Gradium expects. The answer
+is raw Ogg Opus. Anything other than a `200` whose body starts with `OggS` is a
+failure. Redirects are not followed, because they would carry `x-api-key`
+somewhere else.
+
+**Deadline.** One wall-clock deadline covers the whole upstream call: connect,
+response headers and the full body download. It is **6 s for a taunt and 18 s
+for a recap**. The game server aborts after 8 s / 22 s, which leaves about
+2 s / 4 s for Modal routing on a warm container. That is the only guarantee: the
+deadline starts inside the function, so a cold start can push the answer past
+the game server's abort (see "Cost and safety notes"). httpx's own timeouts
+apply per read, so a body that trickles in a piece every few hundred ms never
+trips them. `fetch_speech` wraps the whole call in `asyncio.timeout` instead. A
+test shows the difference over a real socket.
+
+**Responses.**
+
+- `200`: the Ogg Opus bytes, `Content-Type: audio/ogg`, and
+  `x-voice-chars: <n>`, the number of characters sent to Gradium (the billed amount).
+- `401`: missing or wrong `x-voice-token`.
+- `422`: the body is not `{"text": string, "kind": "taunt" | "recap"}`, is over
+  16 KB, or the text is empty after sanitising.
+- `502`: Gradium was unreachable, answered non-200, or sent something that is
+  not Ogg. `detail` is a short reason such as `status_429`, `not_ogg` or
+  `ConnectError`.
+- `503`: `GRADIUM_API_KEY` is empty in the container.
+- `504`: the deadline passed.
+
+Errors are JSON `{"error", "detail"}`. Neither the key nor the token ever
+appears in a response, an error detail or a log line. Failures carry status
+codes and exception type names only. Each request logs one line, for example
+`voice kind=taunt status=200 chars=57 bytes=21874 ms=812`. The text is never
+logged.
+
+**Voice.** The default is Gradium's "Garrett" (`POBHtemksfWQbng0`), a smooth,
+low US male. To pick another voice, set `GRADIUM_VOICE_ID` in the shell that
+deploys. It is baked into the image like the model overrides. Only letters,
+digits, `_` and `-` are accepted; anything else falls back to the default.
+
+```bash
+GRADIUM_VOICE_ID=<voice id> modal deploy ai/modal/app.py
+```
+
+**Cost.** Gradium bills **1 credit per character** sent, and the free plan is
+about 45,000 credits a month. A taunt costs at most 120 credits (director
+taunts are at most 90 characters). A recap costs at most 600. The game server
+voices at most `VOICE_MAX_LINES` taunts per match (default 20), so a full match
+costs at most about 20 x 90 + 600 = 2,400 credits. That is roughly 18 matches a
+month on the free plan. Set `VOICE_RECAP=0` on the game server to skip the
+recap. Use `x-voice-chars` and the log line to track spend.
+
 ## Files
 
 | File | What |
 |---|---|
-| `app.py` | Modal app `redbox-ai`: image, secret, model env, the two web endpoints |
+| `app.py` | Modal app `redbox-ai`: image, secrets, model/voice env, the three web endpoints |
 | `goblin_king.py` | Pure logic: response schemas, prompts, input normalisation, output validation (no network) |
+| `voice.py` | Voice logic: token check, sanitising, the Gradium request, the deadline-bounded download and the Ogg check. The HTTP client is injected |
 | `fixtures/snapshot.json` | A realistic mid-wave-2 `DirectorSnapshot` (all five heroes) |
 | `fixtures/debrief.json` | A full 3-wave victory `DebriefRequest` consistent with the snapshot; event shapes match `backend/src/systems` |
-| `tests/` | Offline pytest suite: a fake OpenAI client, plus the real SDK over an in-process mock transport. Network is disabled and no key is read |
+| `tests/` | Offline pytest suite: a fake OpenAI client, the real SDK over an in-process mock transport, and a fake Gradium on `httpx.MockTransport`. Network is disabled and no key is read. One voice test allows loopback connections to a server it starts on 127.0.0.1 |
 
 ## Test locally (no keys, no network)
 
@@ -139,17 +221,41 @@ modal profile current           # the one `modal deploy` will use
 modal profile list              # all profiles; `modal profile activate <name>` to switch
 ```
 
-**2. Create the secret** `openai` with your key in `OPENAI_API_KEY`. The app
-refuses to deploy without it. `read -s` prompts without echoing: paste the key
-and press Enter. The key never lands in your shell history:
+**2. Create the secrets.** The app refuses to deploy unless both secrets exist
+with these keys. The check covers the whole app, so create them before the next
+deploy even if you do not want voice yet:
+
+| Secret | Keys | Used by |
+|---|---|---|
+| `openai` | `OPENAI_API_KEY`, `GRADIUM_API_KEY` | director and debrief (OpenAI), voice (Gradium) |
+| `redbox-voice` | `VOICE_TOKEN` | voice: the value callers must send in `x-voice-token` |
+
+`read -s` prompts without echoing: paste each value and press Enter. Nothing
+lands in your shell history. `--force` replaces the WHOLE secret, so give
+`openai` both keys in one command:
 
 ```bash
-read -s OPENAI_API_KEY && modal secret create openai OPENAI_API_KEY="$OPENAI_API_KEY"; unset OPENAI_API_KEY
-modal secret list               # confirm it exists (values are never shown)
+read -s OPENAI_API_KEY && read -s GRADIUM_API_KEY && \
+  modal secret create --force openai OPENAI_API_KEY="$OPENAI_API_KEY" GRADIUM_API_KEY="$GRADIUM_API_KEY"
+unset OPENAI_API_KEY GRADIUM_API_KEY
+
+VOICE_TOKEN=$(openssl rand -hex 32)                 # a fresh random token
+modal secret create redbox-voice VOICE_TOKEN="$VOICE_TOKEN"
+railway variables --set "VOICE_TOKEN=$VOICE_TOKEN"  # the game server sends the same value (step 4)
+unset VOICE_TOKEN
+
+modal secret list               # confirm both exist (values are never shown)
 ```
 
-Add `--force` after `create` to replace an existing secret. The code never
-reads the key. The OpenAI SDK picks it up from the container environment.
+The code never reads the OpenAI key; the OpenAI SDK picks it up from the
+container environment. `voice.py` reads `GRADIUM_API_KEY` and `VOICE_TOKEN` from
+the environment on each request, only to call Gradium and to check the header.
+Mounting the `openai` secret also puts `OPENAI_API_KEY` into the voice
+container's environment, but the voice code never reads it.
+
+To rotate the voice token, run `modal secret create --force redbox-voice ...`
+with a new value and set the same value on Railway. Running containers keep the
+old value, so run `modal app stop redbox-ai` and deploy again.
 
 **3. Deploy.**
 
@@ -157,31 +263,39 @@ reads the key. The OpenAI SDK picks it up from the container environment.
 modal deploy ai/modal/app.py
 ```
 
-The output ends with two web endpoint URLs, of the form
+The output ends with three web endpoint URLs, of the form
 
 ```
 https://<workspace>--redbox-ai-director.modal.run
 https://<workspace>--redbox-ai-debrief.modal.run
+https://<workspace>--redbox-ai-voice.modal.run
 ```
 
 (`<workspace>-<env>--...` if you deploy to a non-default environment.) For a
 throwaway dev URL that hot-reloads instead, use `modal serve ai/modal/app.py`.
 
 **4. Point the game server at them.** On Railway, open the game server service,
-go to **Variables**, add `DIRECTOR_URL` and `DEBRIEF_URL` with the two URLs, and
-deploy the change. From the CLI:
+go to **Variables**, add `DIRECTOR_URL`, `DEBRIEF_URL` and `VOICE_URL` with the
+three URLs (plus `VOICE_TOKEN` from step 2), and deploy the change. From the CLI:
 
 ```bash
 railway variables --set "DIRECTOR_URL=https://<workspace>--redbox-ai-director.modal.run" \
-                  --set "DEBRIEF_URL=https://<workspace>--redbox-ai-debrief.modal.run"
+                  --set "DEBRIEF_URL=https://<workspace>--redbox-ai-debrief.modal.run" \
+                  --set "VOICE_URL=https://<workspace>--redbox-ai-voice.modal.run"
 ```
 
+Voice is on only when both `VOICE_URL` and `VOICE_TOKEN` are set. Two optional
+variables: `VOICE_MAX_LINES` (taunts voiced per match, default 20) and
+`VOICE_RECAP=0` (do not voice the recap).
+
 The backend reads them as plain environment variables
-(`backend/src/ai/director.ts` / `debrief.ts`). To run the server locally:
+(`backend/src/ai/director.ts` / `debrief.ts` / `voice.ts`). To run the server locally:
 
 ```bash
 export DIRECTOR_URL=https://<workspace>--redbox-ai-director.modal.run
 export DEBRIEF_URL=https://<workspace>--redbox-ai-debrief.modal.run
+export VOICE_URL=https://<workspace>--redbox-ai-voice.modal.run
+read -s VOICE_TOKEN && export VOICE_TOKEN      # the value stored in redbox-voice
 npm run server
 ```
 
@@ -215,21 +329,54 @@ for i in 1 2 3 4 5; do
 done
 ```
 
-Logs print one line per request with the endpoint, model, status and latency.
-They never contain prompts or keys. Read them with `modal app logs redbox-ai`.
+Voice (every call spends Gradium credits, one per character):
+
+```bash
+export VOICE_URL=https://<workspace>--redbox-ai-voice.modal.run
+read -s VOICE_TOKEN          # paste the value stored in the redbox-voice secret
+
+curl -sS -X POST "$VOICE_URL" -D - -o taunt.ogg \
+  -H 'content-type: application/json' -H "x-voice-token: $VOICE_TOKEN" \
+  --data '{"text": "Drop my crate, Dwarf! Two towers down and you still waddle.", "kind": "taunt"}'
+# HTTP/2 200
+# content-type: audio/ogg
+# x-voice-chars: 59
+file taunt.ogg               # taunt.ogg: Ogg data, Opus audio
+open taunt.ogg               # macOS; or: ffplay -autoexit taunt.ogg
+
+# Without the token: 401, and nothing is billed.
+curl -sS -X POST "$VOICE_URL" -H 'content-type: application/json' \
+  --data '{"text": "Hello", "kind": "taunt"}'
+# {"error":"unauthorized","detail":""}
+unset VOICE_TOKEN
+```
+
+Logs print one line per request with the endpoint, the model (or, for voice,
+the kind and character count), the status and the latency. They never contain
+prompts, taunt text, keys or the voice token. Read them with
+`modal app logs redbox-ai`.
 
 ## Cost and safety notes
 
 - `min_containers=1` keeps one director container running (and billed) for as
   long as the app is deployed. After the demo: `modal app stop redbox-ai`.
-- The endpoints are public URLs. Spend is bounded by `max_containers` (3 for the
-  director, 2 for the debrief) and `max_output_tokens` (800 / 4000, reasoning
-  included), but do not publish the URLs. Modal proxy auth
+- The director and debrief endpoints are public URLs. Spend is bounded by
+  `max_containers` (3 for the director, 2 for the debrief) and
+  `max_output_tokens` (800 / 4000, reasoning included), but do not publish the
+  URLs. Modal proxy auth
   (`requires_proxy_auth=True`) would lock them down, but then the game server
   would have to send `Modal-Key` / `Modal-Secret` headers, which brief 09 does
   not do.
 - Requests are sent with `store: false`, so OpenAI does not keep match logs for
   later retrieval through the API.
+- The voice endpoint requires `x-voice-token` because every call spends Gradium
+  credits. Keep `VOICE_TOKEN` only in the `redbox-voice` secret and the Railway
+  variables, and rotate it if it leaks. Spend is further bounded by the 120 / 600
+  character caps, `max_containers=2`, and `VOICE_MAX_LINES` on the game server.
+- The voice container is not kept warm (`scaledown_window=300`). The first taunt
+  after a quiet spell pays a cold start, which can push it past the game
+  server's 8 s abort. That taunt then stays text-only, and Gradium still bills
+  its characters because the upstream call ran to completion.
 - The debrief container is not kept warm. A cold start adds a few seconds
   against the 15 s budget, and `scaledown_window=300` keeps it alive between
   back-to-back matches.

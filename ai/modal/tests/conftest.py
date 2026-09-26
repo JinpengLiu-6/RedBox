@@ -2,11 +2,12 @@
 
 - Modal is pointed at a config file that does not exist, so importing app.py
   never loads the developer's Modal profile or token.
-- OpenAI credentials, endpoint and model overrides are removed from the test
-  process env (never read), so no real key can be used and a developer's
-  DIRECTOR_MODEL cannot change what the tests expect.
-- Every test runs with socket connects disabled, so a real OpenAI or Modal
-  call fails loudly instead of spending money.
+- OpenAI and Gradium credentials, the voice token, endpoints and model/voice
+  overrides are removed from the test process env (never read), so no real key
+  can be used and a developer's DIRECTOR_MODEL cannot change what the tests expect.
+- Every test runs with socket connects disabled, so a real OpenAI, Gradium or
+  Modal call fails loudly instead of spending money. (test_voice opens one
+  loopback-only exception to a local server it starts itself.)
 """
 
 from __future__ import annotations
@@ -30,10 +31,12 @@ for path in (str(MODAL_DIR), str(TESTS_DIR)):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-#: Dropped unread. The model keys mirror goblin_king.MODEL_ENV_KEYS (test_app checks it).
+#: Dropped unread. The model keys mirror goblin_king.MODEL_ENV_KEYS (test_app checks it),
+#: the voice keys voice.VOICE_ENV_KEYS plus the two voice secrets (test_voice checks it).
 SCRUBBED_ENV = (
     "OPENAI_API_KEY", "OPENAI_ADMIN_KEY", "OPENAI_BASE_URL", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID",
     "DIRECTOR_MODEL", "DEBRIEF_MODEL", "DIRECTOR_REASONING_EFFORT", "DEBRIEF_REASONING_EFFORT",
+    "GRADIUM_API_KEY", "GRADIUM_VOICE_ID", "VOICE_TOKEN",
 )
 for key in SCRUBBED_ENV:
     os.environ.pop(key, None)

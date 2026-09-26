@@ -1,16 +1,18 @@
-"""Modal app `redbox-ai`: the optional Goblin King voice (director) and debrief.
+"""Modal app `redbox-ai`: the optional Goblin King director, debrief and voice.
 
-Two POST web endpoints, both optional for play - the game server only calls
-them when DIRECTOR_URL / DEBRIEF_URL are set, and falls back locally on any
-non-200 answer or timeout:
+Three POST web endpoints, all optional for play - the game server only calls
+them when DIRECTOR_URL / DEBRIEF_URL / VOICE_URL are set, and carries on
+without them on any non-200 answer or timeout:
 
   director  DirectorSnapshot -> DirectorDecision   (DIRECTOR_MODEL, default gpt-6-luna, kept warm)
   debrief   DebriefRequest   -> DebriefPayload     (DEBRIEF_MODEL, default gpt-6-luna)
+  voice     {text, kind}     -> Ogg Opus bytes     (Gradium TTS; needs the x-voice-token header)
 
-Both call the OpenAI Responses API with Structured Outputs (strict JSON
-schema). All prompt building and validation lives in goblin_king.py (pure,
-offline testable). This file is only the Modal + HTTP wiring. Deploy: see
-README.md.
+director and debrief call the OpenAI Responses API with Structured Outputs
+(strict JSON schema); all prompt building and validation lives in
+goblin_king.py. voice calls Gradium; sanitising, auth and the deadline-bounded
+upstream call live in voice.py. Both modules are plain and offline testable.
+This file is only the Modal + HTTP wiring. Deploy: see README.md.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ import time
 from typing import Any, Callable, Mapping
 
 import modal
+from fastapi import Request
 
 from goblin_king import (
     DEFAULT_DEBRIEF_MODEL,
@@ -30,6 +33,16 @@ from goblin_king import (
     director_model,
     handle_debrief,
     handle_director,
+)
+from voice import (
+    AUDIO_MEDIA_TYPE,
+    CHARS_HEADER,
+    MAX_BODY_BYTES,
+    TOKEN_HEADER,
+    VOICE_ENV_KEYS,
+    handle_voice,
+    new_http_client,
+    voice_settings,
 )
 
 APP_NAME = "redbox-ai"
@@ -43,28 +56,38 @@ SECRET_NAME = "openai"
 DIRECTOR_UPSTREAM_TIMEOUT_S = 5.0
 #: The game server gives the debrief 25 s (measured: ~11.6 s end-to-end).
 DEBRIEF_UPSTREAM_TIMEOUT_S = 20.0
+#: Modal secret holding VOICE_TOKEN, the shared secret the game server sends in
+#: the x-voice-token header. GRADIUM_API_KEY lives in SECRET_NAME ("openai").
+VOICE_SECRET_NAME = "redbox-voice"
 
 
 def model_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
-    """Non-secret model overrides (MODEL_ENV_KEYS) set in the deploying shell.
+    """Non-secret overrides (MODEL_ENV_KEYS, VOICE_ENV_KEYS) set in the deploying shell.
 
     Baked into the image env so `DIRECTOR_MODEL=... modal deploy ai/modal/app.py`
-    reaches the container. Only these keys are read; everything else, the API
-    key included, is ignored.
+    (or GRADIUM_VOICE_ID=...) reaches the container. Only these keys are read;
+    everything else, API keys and the voice token included, is ignored.
     """
     environ = os.environ if environ is None else environ
-    return {key: environ[key].strip() for key in MODEL_ENV_KEYS if environ.get(key, "").strip()}
+    keys = MODEL_ENV_KEYS + VOICE_ENV_KEYS
+    return {key: environ[key].strip() for key in keys if environ.get(key, "").strip()}
 
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
-    .uv_pip_install("openai==3.19.2", "fastapi[standard]==0.141.1")
+    .uv_pip_install("openai==3.19.2", "fastapi[standard]==0.141.1", "httpx==0.28.1")
     .env(model_env())
-    .add_local_python_source("goblin_king")
+    .add_local_python_source("goblin_king", "voice")
 )
 
 app = modal.App(APP_NAME, image=image)
 openai_secret = modal.Secret.from_name(SECRET_NAME, required_keys=["OPENAI_API_KEY"])
+#: The voice endpoint needs both: the Gradium key (stored in the "openai"
+#: secret) and the token that callers must present. Deploy fails if either is missing.
+voice_secrets = [
+    modal.Secret.from_name(SECRET_NAME, required_keys=["GRADIUM_API_KEY"]),
+    modal.Secret.from_name(VOICE_SECRET_NAME, required_keys=["VOICE_TOKEN"]),
+]
 
 
 @functools.lru_cache(maxsize=None)
@@ -110,6 +133,63 @@ def _serve(
     return JSONResponse(status_code=status, content=payload)
 
 
+@functools.lru_cache(maxsize=None)
+def _voice_client() -> Any:
+    """One httpx.AsyncClient per container, built on the first authorised request.
+
+    Modal runs every input of an async function on the container's one event
+    loop, so the client's connection pool is shared by all of them.
+    """
+    return new_http_client()
+
+
+async def _read_capped_body(request: Any) -> bytes:
+    """The request body, but never more than MAX_BODY_BYTES + 1 bytes of it."""
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > MAX_BODY_BYTES:
+            break
+    return bytes(body)
+
+
+async def serve_voice(
+    request: Any,
+    client_factory: Callable[[], Any] | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> Any:
+    """Run the voice handler and turn its result into an HTTP response.
+
+    200 is the raw Ogg Opus audio with x-voice-chars (characters billed); every
+    other status is a JSONResponse {error, detail} with no secret in it. One log
+    line per request: kind, status, characters, bytes, latency. Never the text,
+    the token or the key.
+    """
+    from fastapi.responses import JSONResponse, Response
+
+    started = time.perf_counter()
+    result = await handle_voice(
+        request.headers.get(TOKEN_HEADER),
+        lambda: _read_capped_body(request),
+        voice_settings(environ),
+        client_factory or _voice_client,
+    )
+    elapsed_ms = round((time.perf_counter() - started) * 1000)
+    detail = "" if result.status == 200 else f" error={result.error} detail={result.detail}"
+    print(
+        f"voice kind={result.kind or '-'} status={result.status} chars={result.chars} "
+        f"bytes={len(result.audio)} ms={elapsed_ms}{detail}",
+        flush=True,
+    )
+    if result.status == 200:
+        return Response(
+            content=result.audio,
+            media_type=AUDIO_MEDIA_TYPE,
+            headers={CHARS_HEADER: str(result.chars), "cache-control": "no-store"},
+        )
+    return JSONResponse(status_code=result.status, content={"error": result.error, "detail": result.detail})
+
+
 def serve_director(body: Any, client_factory: Callable[[float], Any] | None = None) -> Any:
     return _serve("director", body, handle_director, DIRECTOR_UPSTREAM_TIMEOUT_S, director_model(), client_factory)
 
@@ -134,7 +214,15 @@ def debrief(request: dict):
     return serve_debrief(request)
 
 
+@app.function(secrets=voice_secrets, max_containers=2, scaledown_window=300, timeout=30)
+@modal.concurrent(max_inputs=16)
+@modal.fastapi_endpoint(method="POST")
+async def voice(request: Request):
+    """POST {text, kind} with header x-voice-token -> audio/ogg. 401 without the token."""
+    return await serve_voice(request)
+
+
 __all__ = [
-    "APP_NAME", "DEFAULT_DEBRIEF_MODEL", "DEFAULT_DIRECTOR_MODEL", "SECRET_NAME",
-    "app", "debrief", "director", "model_env", "serve_debrief", "serve_director",
+    "APP_NAME", "DEFAULT_DEBRIEF_MODEL", "DEFAULT_DIRECTOR_MODEL", "SECRET_NAME", "VOICE_SECRET_NAME",
+    "app", "debrief", "director", "model_env", "serve_debrief", "serve_director", "serve_voice", "voice",
 ]
