@@ -18,13 +18,26 @@ clamped again before it leaves Modal:
   who is in the snapshot and alive, else `null`. Hero names and player ids from
   the model are mapped to the class id.
 - `threatBias`: `ClassId` keys only, finite numbers clamped to 0.5 - 2.0.
-- `taunt`: one English line, at most 90 characters, cut on a word boundary. If it
-  is empty or names no concrete fact (hero, number, crate, tower, ...), it is
-  replaced by a fact-based line built from the snapshot.
+- `taunt`: one English line, at most 90 characters, cut on a word boundary,
+  pictographs removed. It is checked against the snapshot (`taunt_is_grounded`):
+  it must name a hero who is in the match or state a number the snapshot backs
+  (towers down/standing, crates `N of M`, `wave N`, lives, HP %, time left), and
+  it must not claim anything false (a wrong count, an absent hero, a crate pinned
+  on a hero who neither carries nor recently touched one). Generic words such as
+  "wave", "base" or "one" ground nothing. A taunt that fails is replaced by a
+  fact-based line built from the snapshot.
 - `reasoning`: one line, at most 140 characters.
-- Debrief `summary`: at most 5 sentences / 900 characters. `highlights`: exactly
-  3 distinct lines (padded with true facts from the event log). `mvpPlayerId`: an
-  id from `players` (the model's pick if valid, else the stat leader).
+- Debrief `summary`: 3 to 5 sentences, at most 900 characters. Extra sentences
+  are cut; a shorter summary is padded with true fact sentences from the event
+  log (502 if even that cannot reach 3). `highlights`: exactly 3 distinct lines of
+  at most 120 characters (padded with true facts). `mvpPlayerId`: an id from
+  `players` (the model's pick if valid, else the stat leader).
+
+The debrief digest reads the event log as the backend really emits it: trap
+goblins come from `trap_triggered.value` (`CRATES.TRAP_GOBLINS`, not from the
+once-per-wave `goblins_spawned`), and a per-hero stat such as towers destroyed
+is only listed when the log credits it to a hero (`towers.ts` emits
+`crystal_destroyed` without a `playerId`, so towers stay a team total).
 
 Status codes: `200` contract JSON; `422` body is not a JSON object (FastAPI
 rejects it before our code runs); `502` the model gave no usable tool call;
@@ -39,7 +52,7 @@ server treats every non-200 as "no AI this time".
 | `app.py` | Modal app `redbox-ai`: image, secret, the two web endpoints |
 | `goblin_king.py` | Pure logic: tool schemas, prompts, input normalisation, output validation (no network) |
 | `fixtures/snapshot.json` | A realistic mid-wave-2 `DirectorSnapshot` (all five heroes) |
-| `fixtures/debrief.json` | A full 3-wave victory `DebriefRequest` consistent with the snapshot |
+| `fixtures/debrief.json` | A full 3-wave victory `DebriefRequest` consistent with the snapshot; event shapes match `backend/src/systems` |
 | `tests/` | Offline pytest suite (fake Anthropic client, network disabled) |
 
 ## Test locally (no keys, no network)

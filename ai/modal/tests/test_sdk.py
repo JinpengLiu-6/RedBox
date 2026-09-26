@@ -52,7 +52,7 @@ def test_director_through_the_real_sdk(snapshot_fixture):
 
 def test_debrief_through_the_real_sdk(debrief_fixture):
     seen: list = []
-    output = {"summary": "Eight crates gone. I am furious.", "highlights": ["a", "b", "c"], "mvpPlayerId": "Xk3fQ9aLm"}
+    output = {"summary": "Eight crates gone. I am furious. Tess, I will remember your beard.", "highlights": ["a", "b", "c"], "mvpPlayerId": "Xk3fQ9aLm"}
     client = sdk_client(gk.DEBRIEF_TOOL_NAME, output, gk.DEBRIEF_MODEL, seen)
     status, payload = gk.handle_debrief(debrief_fixture, client)
     assert (status, payload) == (200, output)

@@ -70,6 +70,7 @@ def test_director_bounds_match_constants_ts():
     assert float(director["MAX_THREAT_BIAS"]) == gk.MAX_THREAT_BIAS == 2.0
     assert int(director["TAUNT_MAX_CHARS"]) == gk.TAUNT_MAX_CHARS == 90
     assert int(ts.const_block("TOWERS")["COUNT"]) == gk.TOWER_COUNT
+    assert int(ts.const_block("CRATES")["TRAP_GOBLINS"]) == gk.TRAP_GOBLINS
     assert ts.wave_count() == gk.WAVE_COUNT
     assert ts.outcome_labels()[gk.OUTCOME_VICTORY] == "Victory"
 

@@ -68,6 +68,16 @@ def test_upstream_timeouts_fit_the_game_server_budgets(app_module):
     assert app_module.DEBRIEF_UPSTREAM_TIMEOUT_S < 15    # debrief fetch timeout in brief 09
 
 
+@pytest.mark.parametrize("budget", ["DIRECTOR_UPSTREAM_TIMEOUT_S", "DEBRIEF_UPSTREAM_TIMEOUT_S"])
+def test_real_client_has_the_budget_timeout_and_no_retries(app_module, monkeypatch, budget):
+    """SDK defaults are a 600 s read timeout and 2 retries: far past the game server's abort."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "dummy-key-for-offline-tests")
+    timeout_s = getattr(app_module, budget)
+    client = app_module._client.__wrapped__(timeout_s)  # bypass the per-container cache
+    assert client.timeout == timeout_s
+    assert client.max_retries == 0
+
+
 def test_serve_director_returns_the_contract_json(app_module, snapshot_fixture):
     fake = FakeClient(tool_message(gk.DIRECTOR_TOOL_NAME, {
         "focus": "dwarf", "threatBias": {"dwarf": 9}, "taunt": "Hand over my crate, Dwarf!", "reasoning": "Carrier.",
