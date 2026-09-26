@@ -1,0 +1,19 @@
+{
+  "name": "redbox",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "shared",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "validate": "tsx shared/scripts/validate.ts",
+    "check": "npm run typecheck && npm run validate"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15",
+    "typescript": "^5.6.0"
+  }
+}
