@@ -63,13 +63,16 @@ function hostilesWithin(w: World, centre: Vec2, radius: number): Hostile[] {
   return out;
 }
 
-/** Hostiles whose centre lies within `halfWidth` of the path segment ahead of `from` (each once). */
+/**
+ * Hostiles whose centre lies within `halfWidth` of the path segment from `from`
+ * to its end (each once). A capsule: both ends count, so a goblin crowding the
+ * warrior's flank when the dash starts is cut too, not only what lies ahead.
+ */
 function hostilesAlongPath(w: World, from: Vec2, dir: Vec2, length: number, halfWidth: number): Hostile[] {
   const mid = { x: from.x + dir.x * length / 2, y: from.y + dir.y * length / 2 };
   return hostilesWithin(w, mid, length / 2 + halfWidth).filter((h) => {
     const along = (h.pos.x - from.x) * dir.x + (h.pos.y - from.y) * dir.y;
-    if (along < 0) return false;
-    const t = Math.min(along, length);
+    const t = Math.max(0, Math.min(along, length));
     const foot = { x: from.x + dir.x * t, y: from.y + dir.y * t };
     return w.distance(foot, h.pos) <= halfWidth && w.lineOfSight(foot, h.pos);
   });
@@ -111,8 +114,8 @@ function dash(w: World, caster: Player, dir: Vec2, distance: number): number {
 
 /**
  * Q - Slashing Dash: dash toward the aim up to `range`, stopping at walls.
- * Every hostile within `width / 2` of the path takes `damage` once. No room to
- * dash = no cast.
+ * Every hostile within `width / 2` of the path (start and end included) takes
+ * `damage` once. No room to dash = no cast.
  */
 const slashingDash: AbilityHandler = (ctx) => {
   const { world: w, caster } = ctx;

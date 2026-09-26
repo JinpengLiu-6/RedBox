@@ -9,12 +9,18 @@
  */
 
 import {
-  MOD, TILE,
+  MOD, PLAYER, TILE,
   type AbilityContext, type AbilityHandler, type ClassModule, type Vec2, type World,
 } from '@redbox/shared';
 
 /** Earth Splitter advances in steps this long while looking for the first wall. */
 const SPLITTER_STEP_PX = TILE / 4;
+/**
+ * The shockwave has to get past the troll's own body. Movement keeps the body
+ * clear of walls, so a troll pressed against a wall still has a step or two of
+ * floor under its own radius; a line that short is "facing into a wall" = no cast.
+ */
+const SPLITTER_MIN_REACH_PX = PLAYER.RADIUS;
 
 interface Hostile { id: string; kind: 'creep' | 'crystal' | 'boss'; pos: Vec2; }
 
@@ -64,14 +70,15 @@ const whirlwind: AbilityHandler = (ctx) => {
 /**
  * E - Earth Splitter: a line toward the aim, `range` long and `width` wide,
  * cut short by the first wall. Hostiles on it take `damage`; goblins and the
- * boss are slowed to `slowMult` for `slowMs`. Facing straight into a wall = no cast.
+ * boss are slowed to `slowMult` for `slowMs`. Facing straight into a wall (the
+ * line cannot get past the troll's own body) = no cast.
  */
 const earthSplitter: AbilityHandler = (ctx) => {
   const { world: w, caster } = ctx;
   const dir = aimDirection(w, ctx);
   const from = { x: caster.x, y: caster.y };
   const reach = reachBeforeWall(w, from, dir, ctx.range);
-  if (reach <= 0) return false;
+  if (reach <= SPLITTER_MIN_REACH_PX) return false;
 
   const halfWidth = param(ctx, 'width') / 2;
   const damage = param(ctx, 'damage');
