@@ -5,12 +5,14 @@
  * `ctx.params` (CLASSES.mage.abilities[n].params), never literals.
  */
 
-import { CLASSES } from '@redbox/shared';
+import { CLASSES, PLAYER } from '@redbox/shared';
 import type { AbilityHandler, ClassModule, Entity, EntityKind, Vec2, World } from '@redbox/shared';
 import type { Hazard, Player } from '@redbox/shared/schema';
 
 const HOSTILE_KINDS: EntityKind[] = ['creep', 'crystal', 'boss'];
 const METEOR = CLASSES.mage.abilities[2];
+/** Blink backs off from a landing the body does not fit in by this much per try. */
+const BLINK_BACKOFF_STEP_PX = 4;
 
 /** Id used by `w.damage` / `addModifier` for a hostile returned by `query`. */
 function hostileId(w: World, e: Entity): string {
@@ -44,11 +46,35 @@ const frostWave: AbilityHandler = ({ world: w, caster, params, range, aim }) => 
   return true;
 };
 
+/** The hero's whole body clears walls here, as movement.ts checks it. */
+function bodyClear(w: World, x: number, y: number): boolean {
+  const r = PLAYER.RADIUS;
+  return w.walkable(x - r, y - r) && w.walkable(x + r, y - r) && w.walkable(x - r, y + r) && w.walkable(x + r, y + r);
+}
+
+/**
+ * The first spot from `to` back toward `from` where the whole body fits, so a
+ * landing a few px from a wall never leaves the hero overlapping it (movement
+ * refuses every step from there). Undefined when no such spot exists short of
+ * the caster.
+ */
+function bodyFitToward(w: World, from: Vec2, to: Vec2): Vec2 | undefined {
+  const d = w.distance(from, to);
+  const back = w.directionTo(to, from);
+  for (let k = 0; k < d; k += BLINK_BACKOFF_STEP_PX) {
+    const x = to.x + back.x * k, y = to.y + back.y * k;
+    if (bodyClear(w, x, y)) return { x, y };
+  }
+  return d === 0 && bodyClear(w, to.x, to.y) ? { x: to.x, y: to.y } : undefined;
+}
+
 const blink: AbilityHandler = ({ world: w, caster, range, aim }) => {
   const target = clampToRange(caster, aim, range);
-  const landing = w.nearestWalkable(target);
-  if (!w.walkable(landing.x, landing.y)) return false;
-  if (!w.lineOfSight(caster, landing)) return false;
+  const spot = w.nearestWalkable(target);
+  if (!w.walkable(spot.x, spot.y)) return false;
+  if (!w.lineOfSight(caster, spot)) return false;
+  const landing = bodyFitToward(w, caster, spot);
+  if (!landing) return false;
   w.fx('blink', caster, { sourceId: caster.id });
   caster.x = landing.x; caster.y = landing.y;
   w.fx('blink', landing, { sourceId: caster.id });

@@ -11,6 +11,11 @@ function clear(w: World, x: number, y: number) {
   return w.walkable(x - r, y - r) && w.walkable(x + r, y - r) && w.walkable(x - r, y + r) && w.walkable(x + r, y + r);
 }
 
+/** The escape rule for a body that already overlaps a wall. */
+function centreOnFloor(w: World, x: number, y: number) {
+  return w.walkable(x, y);
+}
+
 export function createMovementSystem(): System {
   return {
     id: 'movement',
@@ -21,9 +26,13 @@ export function createMovementSystem(): System {
         const step = effectiveSpeed(p) * w.modifier(p.id, 'speedMult') * w.dt;
         const nx = p.x + intent.x * step;
         const ny = p.y + intent.y * step;
-        if (clear(w, nx, ny)) { p.x = nx; p.y = ny; }
-        else if (clear(w, nx, p.y)) p.x = nx;
-        else if (clear(w, p.x, ny)) p.y = ny;
+        // A body already overlapping a wall (a teleport or push put it there)
+        // would have every step refused and freeze for good: until it is
+        // clear again, only its centre has to stay on the floor.
+        const fits = clear(w, p.x, p.y) ? clear : centreOnFloor;
+        if (fits(w, nx, ny)) { p.x = nx; p.y = ny; }
+        else if (fits(w, nx, p.y)) p.x = nx;
+        else if (fits(w, p.x, ny)) p.y = ny;
         p.facing = Math.atan2(intent.y, intent.x);
         p.moving = true;
       }

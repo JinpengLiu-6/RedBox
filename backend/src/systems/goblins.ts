@@ -51,6 +51,13 @@ export function createGoblinsSystem(): System {
           states.set(creep.id, st);
         }
 
+        // Inside a wall nothing is reachable, so it would idle there for good
+        // and nobody could path to it: put it back on the nearest floor.
+        if (!w.walkable(creep.x, creep.y)) {
+          const out = w.nearestWalkable(creep);
+          creep.x = out.x; creep.y = out.y;
+        }
+
         if (w.modifier(creep.id, MOD.Stunned, 0) > 0) {
           creep.behaviour = 'stunned';
           continue;

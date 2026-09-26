@@ -56,8 +56,9 @@ export const ARENA_H = ARENA_ROWS.length;
 export type TileChar = '#' | '.' | ',' | 'B' | 'S' | 'K' | 'T' | 'c' | 'R' | 'g';
 
 export function tileAt(tx: number, ty: number): TileChar {
-  if (tx < 0 || ty < 0 || tx >= ARENA_W || ty >= ARENA_H) return '#';
-  return ARENA_ROWS[ty]![tx] as TileChar;
+  // Written so NaN (and fractions) count as off the map instead of throwing.
+  if (!(tx >= 0 && ty >= 0 && tx < ARENA_W && ty < ARENA_H)) return '#';
+  return (ARENA_ROWS[ty]?.[tx] ?? '#') as TileChar;
 }
 
 export function isWallTile(tx: number, ty: number): boolean {

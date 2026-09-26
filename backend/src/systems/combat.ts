@@ -64,8 +64,10 @@ export function createCombatSystem(): System {
         if (w.modifier(p.id, 'stunned', 0) > 0) continue;
         const spec = classOf(p);
 
-        const { x, y } = cmd.payload;
-        if (typeof x === 'number' && typeof y === 'number' && (x !== p.x || y !== p.y)) {
+        const { x, y } = cmd.payload ?? {};
+        // Client input: NaN / Infinity would leave the hero facing NaN for good.
+        if (typeof x === 'number' && typeof y === 'number' && Number.isFinite(x) && Number.isFinite(y)
+          && (x !== p.x || y !== p.y)) {
           p.facing = Math.atan2(y - p.y, x - p.x);
         }
         const angle = p.facing;

@@ -18,6 +18,8 @@ import {
 const FIGHT_RADIUS_PX = 250;
 /** Known-real dropped crates this close are picked up before hunting new ones. */
 const DROPPED_CRATE_RADIUS_PX = 600;
+/** A retreating bot still grabs a dropped crate this close: delivering it is a trip home too. */
+const RETREAT_PICKUP_RADIUS_PX = 150;
 /** Melee heroes stop closing in at this distance. */
 const MELEE_STANDOFF_PX = 40;
 /** Ranged heroes hold at this fraction of their attack range. */
@@ -173,6 +175,18 @@ export function createBotsSystem(): System {
     return best;
   }
 
+  /** The living bot closest to `to` that is free to fetch it (not carrying, not retreating). */
+  function nearestFreeBot(w: World, to: Vec2): string | undefined {
+    let best: string | undefined;
+    let bestD = Infinity;
+    for (const q of w.state.players.values()) {
+      if (!q.isBot || !q.alive || isCarrying(q) || brains.get(q.id)?.retreating) continue;
+      const d = w.distance(q, to);
+      if (d < bestD) { bestD = d; best = q.id; }
+    }
+    return best;
+  }
+
   function reachableFrom(w: World, p: Player, to: Vec2): boolean {
     return w.reachable(p, to);
   }
@@ -198,16 +212,23 @@ export function createBotsSystem(): System {
     // 1. Carrying: deliver, never fight.
     if (isCarrying(p)) return { kind: 'deliver' };
 
-    // Hurt: run home (also a delivery when carrying, handled above).
-    if (brain.retreating) return { kind: 'retreat' };
-
     const boxes = [...w.state.boxes.values()];
+    /** Nearest known-real dropped crate nobody claimed, within `radius`. */
+    const droppedWithin = (radius: number, ok: (b: Box) => boolean = () => true) => nearest(w, p, boxes, (b) =>
+      b.state === BoxState.Dropped && !claimed.has(b.id) && reachableGoal(brain, w, b.id) &&
+      w.distance(p, b) <= radius && ok(b) && reachableFrom(w, p, b));
+    const pickup = (b: Box): Goal => { claimed.add(b.id); return { kind: 'pickup', boxId: b.id }; };
+
+    // Hurt: run home, grabbing a dropped crate on the way (its delivery is a
+    // trip home too).
+    if (brain.retreating) {
+      const onTheWay = droppedWithin(RETREAT_PICKUP_RADIUS_PX);
+      return onTheWay ? pickup(onTheWay) : { kind: 'retreat' };
+    }
 
     // 2. A dropped (known real) crate nearby.
-    const dropped = nearest(w, p, boxes, (b) =>
-      b.state === BoxState.Dropped && !claimed.has(b.id) && reachableGoal(brain, w, b.id) &&
-      w.distance(p, b) <= DROPPED_CRATE_RADIUS_PX && reachableFrom(w, p, b));
-    if (dropped) { claimed.add(dropped.id); return { kind: 'pickup', boxId: dropped.id }; }
+    const dropped = droppedWithin(DROPPED_CRATE_RADIUS_PX);
+    if (dropped) return pickup(dropped);
 
     // 3. Hostile in range: fight it.
     const hostiles = hostilesNear(w, p, FIGHT_RADIUS_PX);
@@ -215,10 +236,20 @@ export function createBotsSystem(): System {
       (h) => reachableGoal(brain, w, h.id) && reachableFrom(w, p, h));
     if (target) return { kind: 'fight', targetId: target.id };
 
+    // A known-real crate anywhere beats opening another possible trap, but only
+    // the bot closest to it goes, so the whole team is not pulled across the map.
+    const farDropped = droppedWithin(Infinity, (b) => nearestFreeBot(w, b) === p.id);
+    if (farDropped) return pickup(farDropped);
+
     // 4. Nearest closed crate nobody else claimed this tick.
     const crate = nearest(w, p, boxes,
       (b) => isClosedCrate(b) && !claimed.has(b.id) && reachableGoal(brain, w, b.id) && reachableFrom(w, p, b));
     if (crate) { claimed.add(crate.id); return { kind: 'crate', boxId: crate.id }; }
+
+    // Nothing else left to open: any dropped crate, however far, before towers
+    // or idling. It is the objective, and nobody else is coming for it.
+    const anyDropped = droppedWithin(Infinity);
+    if (anyDropped) return pickup(anyDropped);
 
     // 5. Nearest standing tower.
     const towers = [...w.state.crystals.values()].filter((c) => !c.destroyed);

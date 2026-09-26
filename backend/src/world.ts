@@ -24,6 +24,7 @@ let idCounter = 0;
 const nextId = (prefix: string) => `${prefix}${(++idCounter).toString(36)}`;
 const NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] as const;
 const FIELD_TTL_MS = 400;
+const BODY_CORNERS = [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const;
 
 export class WorldImpl implements World {
   now = 0;
@@ -105,6 +106,8 @@ export class WorldImpl implements World {
     this.pendingCommands = [];
 
     if (s.phase === MatchPhase.WaveTransition) {
+      // The 7-minute cap holds between waves too: never open a wave after it.
+      if (MATCH.DURATION_MS > 0 && s.timeRemainingMs === 0) { this.endMatch(Outcome.Timeout); return; }
       if (this.now >= this.transitionEndsAt) {
         s.phase = MatchPhase.Playing;
         this.beginWave(s.stage + 1);
@@ -145,6 +148,8 @@ export class WorldImpl implements World {
     this.tickCommands.push({ kind, playerId, payload } as Command);
   }
   setIntent(playerId: string, dx: number, dy: number) {
+    // Client input: NaN / Infinity would turn into a NaN position (Infinity * 0).
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) { dx = 0; dy = 0; }
     const len = Math.hypot(dx, dy);
     const k = len > 1 ? 1 / len : 1;
     this.intents.set(playerId, { dx: dx * k, dy: dy * k });
@@ -175,7 +180,8 @@ export class WorldImpl implements World {
   }
 
   walkable(x: number, y: number) {
-    if (x < 0 || y < 0 || x >= MAP.WIDTH_PX || y >= MAP.HEIGHT_PX) return false;
+    // Written so NaN fails too (every comparison with NaN is false).
+    if (!(x >= 0 && y >= 0 && x < MAP.WIDTH_PX && y < MAP.HEIGHT_PX)) return false;
     const { tx, ty } = toTile(x, y);
     return !isWallTile(tx, ty);
   }
@@ -216,13 +222,50 @@ export class WorldImpl implements World {
     return dist;
   }
 
+  /**
+   * Every tile the segment a-b touches is floor. An exact grid walk
+   * (Amanatides-Woo), so no corner slips between samples.
+   */
+  private segmentClear(ax: number, ay: number, bx: number, by: number): boolean {
+    let tx = Math.floor(ax / TILE), ty = Math.floor(ay / TILE);
+    if (isWallTile(tx, ty)) return false;
+    const dx = bx - ax, dy = by - ay;
+    const sx = Math.sign(dx), sy = Math.sign(dy);
+    const tDeltaX = sx !== 0 ? TILE / Math.abs(dx) : Infinity;
+    const tDeltaY = sy !== 0 ? TILE / Math.abs(dy) : Infinity;
+    let tMaxX = sx > 0 ? ((tx + 1) * TILE - ax) / dx : sx < 0 ? (tx * TILE - ax) / dx : Infinity;
+    let tMaxY = sy > 0 ? ((ty + 1) * TILE - ay) / dy : sy < 0 ? (ty * TILE - ay) / dy : Infinity;
+    for (let n = Math.abs(Math.floor(bx / TILE) - tx) + Math.abs(Math.floor(by / TILE) - ty); n > 0; n--) {
+      if (tMaxX < tMaxY) { tx += sx; tMaxX += tDeltaX; } else { ty += sy; tMaxY += tDeltaY; }
+      if (isWallTile(tx, ty)) return false;
+    }
+    return true;
+  }
+
+  /**
+   * The hero's whole body (the square movement.ts collides) can travel the
+   * straight line a-b. The four corner paths bound the swept square, and a
+   * wall tile is wider than the body, so it cannot hide between them.
+   */
+  private bodyPathClear(a: Vec2, b: Vec2): boolean {
+    const r = PLAYER.RADIUS;
+    for (const [ox, oy] of BODY_CORNERS) {
+      if (!this.segmentClear(a.x + ox * r, a.y + oy * r, b.x + ox * r, b.y + oy * r)) return false;
+    }
+    return true;
+  }
+
   nextStep(from: Vec2, to: Vec2): Vec2 {
-    if (this.lineOfSight(from, to)) return this.directionTo(from, to);
+    // Straight line only when the whole body fits along it. A centre-only
+    // check lets the body clip a wall corner: movement then slides, the line
+    // of sight flips, and the heading alternates with the path step forever.
+    if (this.bodyPathClear(from, to)) return this.directionTo(from, to);
     const t = toTile(to.x, to.y);
     const f = toTile(from.x, from.y);
     const dist = this.fieldTo(t.tx, t.ty);
     const here = dist[f.ty * ARENA_W + f.tx] ?? -1;
-    if (here < 0) return this.directionTo(from, to);
+    // Unreachable, or already on the target's tile: nothing to path around.
+    if (here <= 0) return this.directionTo(from, to);
     let best = here, bx = f.tx, by = f.ty;
     for (const [dx, dy] of NEIGHBOURS) {
       const nx = f.tx + dx, ny = f.ty + dy;
