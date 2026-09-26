@@ -226,7 +226,7 @@ def test_backend_shaped_log_gives_true_totals_and_highlights():
 
 def test_trap_without_a_value_counts_the_contract_default():
     request = gk.normalize_debrief_request({**BACKEND_SHAPED, "events": [{"type": "trap_triggered", "atMs": 1, "playerId": "a"}]})
-    assert gk.team_totals(request)["goblins"] == gk.TRAP_GOBLINS == 2
+    assert gk.team_totals(request)["goblins"] == gk.TRAP_GOBLINS == 3
 
 
 def _mvp_request(events: list[dict]) -> dict:

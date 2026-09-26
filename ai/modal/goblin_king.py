@@ -66,7 +66,7 @@ TOWER_COUNT = 3
 #: CRATES.TRAP_GOBLINS: goblins a sprung trap releases. The crates system puts
 #: this number in trap_triggered.value; goblins_spawned is the goblins system's
 #: once-per-wave guard spawn and says nothing about traps.
-TRAP_GOBLINS = 2
+TRAP_GOBLINS = 3
 #: OUTCOME_LABEL indices in shared/src/enums.ts.
 OUTCOME_VICTORY = 1
 
