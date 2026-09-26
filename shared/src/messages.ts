@@ -55,8 +55,20 @@ export const ServerMessage = {
 } as const;
 export type ServerMessageType = (typeof ServerMessage)[keyof typeof ServerMessage];
 
+/**
+ * Every transient effect the server can fire. Ability effects use the ability id
+ * from classes.ts (taunt, bulwark, shockwave, piercing_shot, volley, focus, blink,
+ * phase, sprint, mend, barrier, cleanse, scan, ping, decoy).
+ */
+export type FxKind =
+  | 'hit' | 'heal' | 'attack' | 'death' | 'explosion'
+  | 'boss_slam' | 'crystal_break' | 'pickup' | 'fake_trigger'
+  | 'taunt' | 'bulwark' | 'shockwave' | 'piercing_shot' | 'volley' | 'focus'
+  | 'blink' | 'phase' | 'sprint' | 'mend' | 'barrier' | 'cleanse'
+  | 'scan' | 'ping' | 'decoy';
+
 export interface FxPayload {
-  kind: 'hit' | 'heal' | 'scan' | 'blink' | 'explosion' | 'crystal_break' | 'pickup' | 'fake_trigger';
+  kind: FxKind;
   x: number;
   y: number;
   sourceId?: string;

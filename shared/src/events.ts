@@ -80,3 +80,12 @@ export const FALLBACK_DECISION: DirectorDecision = {
   taunt: '',
   reasoning: 'threat table only',
 };
+
+/** Body POSTed to the debrief endpoint when the match ends. */
+export interface DebriefRequest {
+  outcome: number;
+  outcomeLabel: string;
+  durationMs: number;
+  players: Array<{ id: string; name: string; classId: ClassId; isBot: boolean }>;
+  events: MatchEvent[];
+}

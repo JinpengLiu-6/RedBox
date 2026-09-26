@@ -14,7 +14,7 @@ import {
   type System, type World,
 } from '@redbox/shared';
 import { Box, Crystal } from '@redbox/shared/schema';
-import type { HeistRoom } from './room.js';
+import { createMovementSystem } from './systems/movement.js';
 
 const TAUNTS = [
   'The one in green is carrying. Take him.',
@@ -24,12 +24,12 @@ const TAUNTS = [
   'Healer first. Then the rest of you.',
 ];
 
-export function stubSystems(room: HeistRoom): System[] {
-  return [spawnStub(room), motionStub(room), directorStub(room), objectiveStub(room)];
+export function stubSystems(): System[] {
+  return [spawnStub(), createMovementSystem(), motionStub(), directorStub(), objectiveStub()];
 }
 
 /** Lays out boxes and crystals exactly as the real spawner will. */
-function spawnStub(room: HeistRoom): System {
+function spawnStub(): System {
   return {
     id: 'stub:spawn',
     init(w) {
@@ -49,9 +49,8 @@ function spawnStub(room: HeistRoom): System {
 
         const isReal = realIds.has(i);
         const camouflaged = isReal && realIds.size - [...realIds].indexOf(i) <= BOXES.CAMOUFLAGED;
-        room.registerBox(box.id, isReal, camouflaged);
         // Camouflaged boxes stay out of state until a scan reveals them.
-        if (!camouflaged) w.state.boxes.set(box.id, box);
+        w.addBox(box, { isReal, camouflaged });
       }
 
       const total = CRYSTALS.PER_STAGE.reduce((a, b) => a + b, 0);
@@ -69,40 +68,20 @@ function spawnStub(room: HeistRoom): System {
   };
 }
 
-/** Moves players from real input, bots and the boss on a lazy orbit. */
-function motionStub(room: HeistRoom): System {
+/** Bots and the boss on a lazy orbit. Humans move through the real movement system. */
+function motionStub(): System {
   return {
     id: 'stub:motion',
     update(w: World) {
       const s = w.state;
       for (const [, p] of s.players) {
-        if (!p.alive) continue;
-        const spec = CLASS_BY_INDEX[p.classIndex];
-        const speed = 200;
-
-        if (p.isBot) {
-          // Drift around the base so the client sees five things moving.
-          const t = s.elapsedMs / 1000 + p.classIndex;
-          p.x = MAP.BASE.x + Math.cos(t * 0.4) * 220;
-          p.y = MAP.BASE.y + Math.sin(t * 0.4) * 220;
-          p.moving = true;
-          p.facing = Math.atan2(Math.cos(t * 0.4), -Math.sin(t * 0.4));
-          continue;
-        }
-
-        const intent = room.intentFor(p.id);
-        if (intent && (intent.dx || intent.dy)) {
-          const nx = p.x + intent.dx * speed * w.dt;
-          const ny = p.y + intent.dy * speed * w.dt;
-          if (w.walkable(nx, ny)) { p.x = nx; p.y = ny; }
-          p.facing = Math.atan2(intent.dy, intent.dx);
-          p.moving = true;
-        } else {
-          p.moving = false;
-        }
-        void spec;
+        if (!p.alive || !p.isBot) continue;
+        const t = s.elapsedMs / 1000 + p.classIndex;
+        p.x = MAP.BASE.x + Math.cos(t * 0.4) * 220;
+        p.y = MAP.BASE.y + Math.sin(t * 0.4) * 220;
+        p.moving = true;
+        p.facing = Math.atan2(Math.cos(t * 0.4), -Math.sin(t * 0.4));
       }
-
       const t = s.elapsedMs / 1000;
       s.boss.x = MAP.BOSS_ZONE.x + Math.cos(t * 0.25) * 260;
       s.boss.y = MAP.BOSS_ZONE.y + Math.sin(t * 0.25) * 260;
@@ -112,7 +91,7 @@ function motionStub(room: HeistRoom): System {
 }
 
 /** Fires believable boss voice lines on the real director cadence. */
-function directorStub(room: HeistRoom): System {
+function directorStub(): System {
   let nextAt = 4000;
   let i = 0;
   return {
@@ -135,7 +114,7 @@ function directorStub(room: HeistRoom): System {
 }
 
 /** Advances objectives on a timer so the client can build every end state. */
-function objectiveStub(room: HeistRoom): System {
+function objectiveStub(): System {
   let nextTickAt = 15_000;
   return {
     id: 'stub:objectives',

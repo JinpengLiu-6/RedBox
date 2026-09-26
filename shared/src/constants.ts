@@ -20,14 +20,15 @@ export const MATCH = {
 
 export const MAP = {
   TILE: 32,
-  WIDTH_TILES: 60,
-  HEIGHT_TILES: 60,
+  /** Wide arena, matching the target art: base bottom-left, boss top-centre. */
+  WIDTH_TILES: 64,
+  HEIGHT_TILES: 32,
   get WIDTH_PX() { return MAP.WIDTH_TILES * MAP.TILE; },
   get HEIGHT_PX() { return MAP.HEIGHT_TILES * MAP.TILE; },
   /** Delivery zone. Also the respawn point. */
-  BASE: { x: 240, y: 1680, radius: 160 },
-  /** Boss arena centre; crystals ring its edge. */
-  BOSS_ZONE: { x: 1440, y: 400, radius: 560 },
+  BASE: { x: 180, y: 880, radius: 140 },
+  /** Where the boss lives and leashes back to. */
+  BOSS_ZONE: { x: 1024, y: 300, radius: 380 },
 } as const;
 
 export const PLAYER = {

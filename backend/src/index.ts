@@ -4,12 +4,13 @@ import { WebSocketTransport } from '@colyseus/ws-transport';
 import { DEFAULT_PORT, ROOM_NAME } from '@redbox/shared';
 import { HeistRoom } from './room.js';
 import { stubSystems } from './stub.js';
+import { realSystems } from './systems/index.js';
 
 const STUB = process.env.STUB === '1';
 const port = Number(process.env.PORT ?? DEFAULT_PORT);
 
 // Swap this for the real system list once the systems land. Nothing else changes.
-HeistRoom.systemFactory = (room) => (STUB ? stubSystems(room) : []);
+HeistRoom.systemFactory = () => (STUB ? stubSystems() : realSystems());
 
 const httpServer = createServer();
 const gameServer = new Server({

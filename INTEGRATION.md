@@ -100,3 +100,18 @@ upgrade the server, the client silently fails to join with
    server then rejects stale clients instead of behaving strangely.
 4. `npm run check` must pass.
 5. `npm run seam` must pass against the stub.
+
+## Changes the frontend needs to know (backend fan-out, 2026-09-26)
+
+- **Map is wide now**: `MAP` is 64×32 tiles (2048×1024). Base bottom-left, boss
+  top-centre — matching the target art. Read `MAP.*`, never hardcode.
+- **Abilities unlock per stage**, as in the art: Q (slot 0) is rank 1 from the
+  start, E unlocks at stage 2, R at stage 3. Render the lock from
+  `player.ranks[slot] === 0`; label it with the stage (`"Волна 2"`, `"Волна 3"`).
+  `state.stage` is the "ВОЛНА N/3" in the HUD.
+- **FX kinds are a closed union** — `FxKind` in `shared/src/messages.ts`. Ability
+  effects use the ability id. Unknown kinds will not happen; switch exhaustively.
+- **Walls**: not in the MVP server. If you draw walls, players will walk through
+  them until a shared wall grid lands in `shared/`. Decide together before drawing
+  a maze.
+- The stub (`npm run stub`) still works exactly as before.

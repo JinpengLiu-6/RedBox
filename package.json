@@ -15,7 +15,8 @@
     "stub": "STUB=1 tsx backend/src/index.ts",
     "server": "tsx watch backend/src/index.ts",
     "client": "npm run dev -w @redbox/frontend",
-    "seam": "tsx e2e/seam-check.ts"
+    "seam": "tsx e2e/seam-check.ts",
+    "test": "tsx --test backend/test/*.test.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",
