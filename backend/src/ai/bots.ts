@@ -5,12 +5,14 @@
  *
  * DEV / SOLO seat fillers. One generic brain, hero-flavoured: melee heroes close
  * in, ranged heroes hold at a fraction of their attack range with line of sight.
- * Bots act ONLY through `w.setIntent` and `w.command`; they never read crate truth.
+ * Bots act ONLY through `w.setIntent` and `w.command`; they never read crate truth,
+ * only the public `mark`: they scan a crate before opening it unless under fire,
+ * skip scanned traps, and in the final wave go for the boss once the crates are in.
  */
 
 import {
-  BOTS, BoxState, CRATES, MAP, PLAYER,
-  classOf, isAbilityReady, isCarrying, isClosedCrate, tileCentre, toTile,
+  BOTS, BoxMark, BoxState, CRATES, MAP, PLAYER,
+  classOf, cratesRemaining, isAbilityReady, isCarrying, isClosedCrate, isKnownReal, isKnownTrap, tileCentre, toTile,
   type Box, type Creep, type Crystal, type Player, type System, type Vec2, type World,
 } from '@redbox/shared';
 
@@ -59,6 +61,8 @@ const GIVE_UP_COOLDOWN_MS = 15_000;
 const RETREAT_SAFE_RADIUS_PX = 400;
 /** A retreating bot that has not been hit for this long is in a standoff, not in danger. */
 const RETREAT_STANDOFF_MS = 5_000;
+/** Hit this recently, a bot opens a crate instead of standing there to scan it. */
+const SCAN_UNDER_FIRE_MS = 1_500;
 /** How far ahead a sidestep is tested for room. */
 const SIDESTEP_PROBE_PX = PLAYER.RADIUS * 2;
 
@@ -241,9 +245,14 @@ export function createBotsSystem(): System {
     const farDropped = droppedWithin(Infinity, (b) => nearestFreeBot(w, b) === p.id);
     if (farDropped) return pickup(farDropped);
 
-    // 4. Nearest closed crate nobody else claimed this tick.
-    const crate = nearest(w, p, boxes,
-      (b) => isClosedCrate(b) && !claimed.has(b.id) && reachableGoal(brain, w, b.id) && reachableFrom(w, p, b));
+    // 4. Nearest closed crate nobody else claimed this tick: a scanned real one
+    // first, never a scanned trap. Once the wave's quota is in, crates are done.
+    const needCrates = cratesRemaining(w.state) > 0;
+    const closedOk = (b: Box) => isClosedCrate(b) && !isKnownTrap(b) && !claimed.has(b.id)
+      && reachableGoal(brain, w, b.id) && reachableFrom(w, p, b);
+    const crate = needCrates
+      ? nearest(w, p, boxes, (b) => closedOk(b) && isKnownReal(b)) ?? nearest(w, p, boxes, closedOk)
+      : undefined;
     if (crate) { claimed.add(crate.id); return { kind: 'crate', boxId: crate.id }; }
 
     // Nothing else left to open: any dropped crate, however far, before towers
@@ -255,6 +264,13 @@ export function createBotsSystem(): System {
     const towers = [...w.state.crystals.values()].filter((c) => !c.destroyed);
     const tower = nearest(w, p, towers, (t) => reachableGoal(brain, w, t.id) && reachableFrom(w, p, t));
     if (tower) return { kind: 'tower', towerId: tower.id };
+
+    // 6. Final wave with the crates in: the King stands between us and victory.
+    const boss = w.state.boss;
+    if (w.state.bossRequired && !needCrates && boss.alive && boss.hp > 0
+      && reachableGoal(brain, w, 'boss') && reachableFrom(w, p, boss)) {
+      return { kind: 'fight', targetId: 'boss' };
+    }
 
     return { kind: 'idle' };
   }
@@ -271,7 +287,7 @@ export function createBotsSystem(): System {
       }
       case 'crate': {
         const b = w.state.boxes.get(goal.boxId);
-        return !!b && isClosedCrate(b);
+        return !!b && isClosedCrate(b) && !isKnownTrap(b) && (isKnownReal(b) || cratesRemaining(w.state) > 0);
       }
       case 'fight': {
         if (goal.targetId === 'boss') return w.state.boss.alive && w.state.boss.hp > 0;
@@ -339,6 +355,9 @@ export function createBotsSystem(): System {
   function goToCrate(w: World, p: Player, box: Box) {
     if (w.distance(p, box) <= CRATES.PICKUP_RADIUS * INTERACT_FRAC) {
       w.setIntent(p.id, 0, 0);
+      // Unknown crate and nobody shooting at us: stand still and let the scan finish.
+      const underFire = w.now - brainOf(p.id).hurtAtMs < SCAN_UNDER_FIRE_MS;
+      if (box.state === BoxState.Idle && box.mark === BoxMark.Unknown && !underFire) return;
       w.command(p.id, 'interact', { targetId: box.id });
     } else {
       steerTo(w, p, box);

@@ -1,8 +1,9 @@
 /**
  * OWNER: see brief backend/tasks/01-crates.md
  *
- * Crates: the wave objective. Real and trap crates are identical on the wire;
- * the ONLY place their truth lives is `w.addBox` / `w.isBoxReal`.
+ * Crates: the wave objective. Real and trap crates are identical on the wire
+ * until opened or scanned; the ONLY place their truth lives is `w.addBox` /
+ * `w.isBoxReal`, and a completed scan is the only thing that copies it to `mark`.
  *
  * Invariants this system guarantees:
  *  - exactly realCrates + trapCrates crates per wave, seeded placement, random truth;
@@ -14,11 +15,14 @@
  *  - a real crate is never destroyed: a downed or disconnected carrier drops it on
  *    walkable ground that is reachable from the base;
  *  - a carrier inside the base always delivers (pressing F there never drops);
- *  - each delivered crate is counted exactly once.
+ *  - each delivered crate is counted exactly once;
+ *  - a scan advances only while a live, empty-handed hero stands still in pickup
+ *    range, at the fastest scanner's speed (scanners do not stack), and resets
+ *    when a scanner takes damage.
  */
 
 import {
-  CRATES, MAP, TILE, BoxMark, BoxState, classIdOf, spotsOf, toTile, tileCentre, wavePlan,
+  CRATES, MAP, TILE, BoxMark, BoxState, classIdOf, isCarrying, scanSpeedOf, spotsOf, toTile, tileCentre, wavePlan,
   type Command, type Player, type System, type Vec2, type World,
 } from '@redbox/shared';
 import { Box } from '@redbox/shared/schema';
@@ -82,6 +86,10 @@ function isCarrierGone(p: Player | undefined): DropReason | undefined {
 export function createBoxesSystem(): System {
   /** Crates that were delivered or triggered. They can never be resolved again. */
   const spent = new Set<string>();
+  /** Scan time accumulated per crate, in ms at speed 1. */
+  const scanMs = new Map<string, number>();
+  /** HP each hero had last tick, to notice a scanner getting hit. */
+  const lastHp = new Map<string, number>();
 
   function placeWave(w: World) {
     const plan = wavePlan(w.wave);
@@ -249,6 +257,66 @@ export function createBoxesSystem(): System {
     }
   }
 
+  function scannable(box: Box) {
+    return box.state === BoxState.Idle && box.mark === BoxMark.Unknown && !spent.has(box.id);
+  }
+
+  function reveal(w: World, box: Box, scanner: Player) {
+    const real = w.isBoxReal(box.id);
+    scanMs.delete(box.id);
+    box.scan = 100;
+    box.mark = real ? BoxMark.Real : BoxMark.Fake;
+    w.fx('scan', box, { sourceId: scanner.id, value: real ? 1 : 0 });
+    w.emit({
+      type: 'box_scanned', atMs: w.now, playerId: scanner.id, classId: classIdOf(scanner),
+      boxId: box.id, label: real ? 'real' : 'trap',
+    });
+  }
+
+  function scanCrates(w: World) {
+    const s = w.state;
+    const hurt = new Set<string>();
+    for (const [, p] of s.players) {
+      const prev = lastHp.get(p.id);
+      if (prev !== undefined && p.hp < prev) hurt.add(p.id);
+      lastHp.set(p.id, p.hp);
+    }
+
+    const closed = [...s.boxes.values()].filter(scannable);
+    if (closed.length === 0) return;
+    const fastest = new Map<string, { p: Player; speed: number }>();
+    const interrupted = new Set<string>();
+    for (const p of w.alivePlayers()) {
+      if (isCarrierGone(p) || isCarrying(p) || p.moving) continue;
+      let box: Box | undefined;
+      let bestD: number = CRATES.PICKUP_RADIUS;
+      for (const b of closed) {
+        const d = w.distance(p, b);
+        if (d <= bestD) { bestD = d; box = b; }
+      }
+      if (!box) continue;
+      if (hurt.has(p.id)) { interrupted.add(box.id); continue; }
+      const speed = scanSpeedOf(p);
+      const cur = fastest.get(box.id);
+      if (!cur || speed > cur.speed) fastest.set(box.id, { p, speed });
+    }
+
+    for (const id of interrupted) {
+      scanMs.delete(id);
+      const box = s.boxes.get(id);
+      if (box && box.scan !== 0) box.scan = 0;
+    }
+    for (const [id, { p, speed }] of fastest) {
+      if (interrupted.has(id)) continue;
+      const box = s.boxes.get(id)!;
+      const ms = (scanMs.get(id) ?? 0) + w.dt * 1000 * speed;
+      if (ms >= CRATES.SCAN_MS) { reveal(w, box, p); continue; }
+      scanMs.set(id, ms);
+      const pct = Math.floor((ms / CRATES.SCAN_MS) * 100);
+      if (box.scan !== pct) box.scan = pct;
+    }
+  }
+
   /** Carried crates follow their carrier, fall when it goes down, and score in the base. */
   function settleCarried(w: World) {
     const s = w.state;
@@ -278,13 +346,18 @@ export function createBoxesSystem(): System {
     id: 'crates',
     init() {
       spent.clear();
+      scanMs.clear();
+      lastHp.clear();
     },
     onWaveStart(w) {
       spent.clear();
+      scanMs.clear();
+      lastHp.clear();
       placeWave(w);
     },
     update(w) {
       resolveInteracts(w);
+      scanCrates(w);
       settleCarried(w);
     },
   };

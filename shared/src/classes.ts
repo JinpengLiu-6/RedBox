@@ -2,8 +2,8 @@
  * The five heroes (MVP plan: "Proposed hero kits"). Everything here is tuning
  * data - damage, ranges, cooldowns, durations - so balancing never touches code.
  *
- * Every hero fights and every hero can carry crates. There is no scanner and no
- * defenceless carrier. Slot 0 (Q) is open in wave 1, slot 1 (E) unlocks in
+ * Every hero fights and every hero can carry crates; any hero can scan a crate,
+ * the dwarf fastest. Slot 0 (Q) is open in wave 1, slot 1 (E) unlocks in
  * wave 2, slot 2 (R) in wave 3.
  */
 
@@ -51,6 +51,8 @@ export interface ClassSpec {
   /** Full arc in degrees for swing/strike. Ignored for bolt. */
   attackArcDeg: number;
   attackCooldownMs: number;
+  /** Crate scan speed multiplier (default 1). */
+  scanSpeed?: number;
   /** Ring colour in the target art. */
   color: number;
   abilities: readonly [AbilitySpec, AbilitySpec, AbilitySpec];
@@ -112,6 +114,7 @@ export const CLASSES: Record<ClassId, ClassSpec> = {
     id: 'dwarf', name: 'Dwarf Demolitionist',
     maxHp: 600, speed: 195,
     attackKind: 'bolt', attackDamage: 34, attackRange: 320, attackArcDeg: 0, attackCooldownMs: 950,
+    scanSpeed: 2,
     color: 0x3b82f6,
     abilities: [
       { id: 'grenade', name: 'Grenade', slot: 0, targeting: 'point', cooldownMs: 6000, range: 360,

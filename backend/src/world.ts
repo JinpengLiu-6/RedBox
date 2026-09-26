@@ -70,6 +70,7 @@ export class WorldImpl implements World {
     s.boxesRequired = plan.requiredDeliveries;
     s.crystalsDestroyed = 0;
     s.bossDamageMult = bossDamageMultiplier(0);
+    s.bossRequired = wave >= WAVE_COUNT;
 
     // The board resets; players keep their remaining lives.
     s.boxes.clear(); s.creeps.clear(); s.hazards.clear(); s.revives.clear(); s.crystals.clear();
@@ -121,8 +122,10 @@ export class WorldImpl implements World {
     }
     this.publishThreatShare();
 
-    // Delivery is the only way to clear a wave. Boss defeat alone never does.
-    if (s.boxesDelivered >= s.boxesRequired && s.boxesRequired > 0) {
+    // Delivery clears a wave; the final wave also needs the boss down.
+    // Boss defeat alone never clears a wave.
+    const bossDown = !s.bossRequired || !s.boss.alive;
+    if (s.boxesDelivered >= s.boxesRequired && s.boxesRequired > 0 && bossDown) {
       this.emit({ type: 'wave_cleared', atMs: this.now, value: s.stage });
       this.fx('wave_cleared', MAP.BASE, { value: s.stage });
       if (s.stage >= WAVE_COUNT) { this.endMatch(Outcome.Victory); return; }

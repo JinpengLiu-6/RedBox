@@ -73,7 +73,7 @@ export type ServerMessageType = (typeof ServerMessage)[keyof typeof ServerMessag
  */
 export type FxKind =
   | 'hit' | 'heal' | 'attack' | 'death' | 'explosion' | 'stun'
-  | 'crystal_break' | 'pickup' | 'drop' | 'deliver' | 'trap'
+  | 'crystal_break' | 'pickup' | 'drop' | 'deliver' | 'trap' | 'scan'
   | 'boss_sweep' | 'boss_slam' | 'boss_charge' | 'boss_defeated'
   | 'frost_wave' | 'blink' | 'meteor'
   | 'whirlwind' | 'earth_splitter' | 'rage'
