@@ -58,8 +58,11 @@ OGG_MAGIC = b"OggS"
 class KindLimits:
     #: Gradium bills 1 credit per character, so the cap is also a cost cap.
     max_chars: int
-    #: Total wall-clock budget for the upstream call. The game server aborts
-    #: after 8 s (taunt) / 22 s (recap), so an answer here always lands first.
+    #: Total wall-clock budget for the upstream Gradium call only. The game
+    #: server aborts after 8 s (taunt) / 22 s (recap), which leaves about 2 s /
+    #: 4 s for Modal routing on a warm container. A cold start is not covered:
+    #: it can push the answer past the abort, and Gradium still bills the
+    #: characters even though the game server drops the audio.
     deadline_s: float
 
 

@@ -139,10 +139,13 @@ somewhere else.
 
 **Deadline.** One wall-clock deadline covers the whole upstream call: connect,
 response headers and the full body download. It is **6 s for a taunt and 18 s
-for a recap**. The game server aborts after 8 s / 22 s, so our answer always
-reaches it. httpx's own timeouts apply per read, so a body that trickles in a
-piece every few hundred ms never trips them. `fetch_speech` wraps the whole call
-in `asyncio.timeout` instead. A test shows the difference over a real socket.
+for a recap**. The game server aborts after 8 s / 22 s, which leaves about
+2 s / 4 s for Modal routing on a warm container. That is the only guarantee: the
+deadline starts inside the function, so a cold start can push the answer past
+the game server's abort (see "Cost and safety notes"). httpx's own timeouts
+apply per read, so a body that trickles in a piece every few hundred ms never
+trips them. `fetch_speech` wraps the whole call in `asyncio.timeout` instead. A
+test shows the difference over a real socket.
 
 **Responses.**
 
@@ -372,7 +375,8 @@ prompts, taunt text, keys or the voice token. Read them with
   character caps, `max_containers=2`, and `VOICE_MAX_LINES` on the game server.
 - The voice container is not kept warm (`scaledown_window=300`). The first taunt
   after a quiet spell pays a cold start, which can push it past the game
-  server's 8 s abort. That taunt then stays text-only.
+  server's 8 s abort. That taunt then stays text-only, and Gradium still bills
+  its characters because the upstream call ran to completion.
 - The debrief container is not kept warm. A cold start adds a few seconds
   against the 15 s budget, and `scaledown_window=300` keeps it alive between
   back-to-back matches.

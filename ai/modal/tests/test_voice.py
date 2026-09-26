@@ -34,6 +34,7 @@ import voice
 
 APP_SOURCE = Path(__file__).resolve().parents[1] / "app.py"
 VOICE_SOURCE = Path(__file__).resolve().parents[1] / "voice.py"
+README = Path(__file__).resolve().parents[1] / "README.md"
 
 DUMMY_KEY = "gradium-DUMMY-key-9f3c1a77"
 DUMMY_TOKEN = "voice-DUMMY-token-5be20d41"
@@ -363,11 +364,17 @@ def test_missing_api_key_is_503_and_calls_nothing():
 # ---------------------------------------------------------------------------
 
 
+#: The game server's own aborts: AbortSignal.timeout(8000) for a taunt and 22 s
+#: for a recap (backend/src/ai/voice.ts, backend/src/ai/voiceClient.ts).
+GAME_SERVER_ABORT_S = {"taunt": 8.0, "recap": 22.0}
+
+
 def test_deadlines_per_kind_fit_the_game_server_aborts(monkeypatch):
     assert voice.KINDS["taunt"].deadline_s == 6.0
     assert voice.KINDS["recap"].deadline_s == 18.0
-    assert voice.KINDS["taunt"].deadline_s < 8    # AbortSignal.timeout(8000) in backend/src/ai/voice.ts
-    assert voice.KINDS["recap"].deadline_s < 22   # recap timeout (22 s) in the backend
+    # The headroom the docs promise for Modal routing on a warm container.
+    headroom = {kind: GAME_SERVER_ABORT_S[kind] - voice.KINDS[kind].deadline_s for kind in voice.KINDS}
+    assert headroom == {"taunt": 2.0, "recap": 4.0}
     seen = []
 
     async def recording_fetch(client, text, *, api_key, voice_id, deadline_s, **_kw):
@@ -378,6 +385,21 @@ def test_deadlines_per_kind_fit_the_game_server_aborts(monkeypatch):
     handle({"text": "Hand it over!", "kind": "taunt"})
     handle({"text": "A recap.", "kind": "recap"})
     assert seen == [6.0, 18.0]
+
+
+def test_docs_do_not_promise_the_answer_beats_the_game_server_abort():
+    # The deadline starts inside the function, after Modal routing and any cold
+    # start, so nothing guarantees the answer lands before the game server gives
+    # up. The docs must say so instead of claiming it "always" arrives in time.
+    readme = README.read_text()
+    source = VOICE_SOURCE.read_text()
+    for text in (readme, source):
+        flat = " ".join(word for word in text.split() if word not in ("#", "#:"))  # join wrapped comments
+        assert "always lands first" not in flat
+        assert "our answer always reaches it" not in flat
+        assert "2 s / 4 s" in flat
+        assert "cold start" in flat
+    assert "Gradium still bills its characters" in " ".join(readme.split())
 
 
 def test_slow_headers_hit_the_deadline():
