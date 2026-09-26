@@ -81,8 +81,8 @@ def test_model_env_copies_only_the_model_overrides(app_module):
 
 
 def test_upstream_timeouts_fit_the_game_server_budgets(app_module):
-    assert app_module.DIRECTOR_UPSTREAM_TIMEOUT_S < 2.5  # DIRECTOR.TIMEOUT_MS
-    assert app_module.DEBRIEF_UPSTREAM_TIMEOUT_S < 15    # debrief fetch timeout in brief 09
+    assert app_module.DIRECTOR_UPSTREAM_TIMEOUT_S < 6.0  # DIRECTOR.TIMEOUT_MS
+    assert app_module.DEBRIEF_UPSTREAM_TIMEOUT_S < 25    # DEBRIEF_TIMEOUT_MS in backend/src/ai/debrief.ts
 
 
 @pytest.mark.parametrize("budget", ["DIRECTOR_UPSTREAM_TIMEOUT_S", "DEBRIEF_UPSTREAM_TIMEOUT_S"])

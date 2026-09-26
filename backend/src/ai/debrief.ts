@@ -10,7 +10,7 @@ import {
   type DebriefPayload, type DebriefRequest, type System, type World,
 } from '@redbox/shared';
 
-const DEBRIEF_TIMEOUT_MS = 15_000;
+const DEBRIEF_TIMEOUT_MS = 25_000;
 const MAX_HIGHLIGHTS = 6;
 
 interface HeroTally { deliveries: number; damageEvents: number; deaths: number; }

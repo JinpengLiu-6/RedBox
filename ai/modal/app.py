@@ -36,11 +36,13 @@ APP_NAME = "redbox-ai"
 #: Modal secret holding the OpenAI API key. Created by the user, never by code;
 #: the SDK reads the key from the container environment, this file never does.
 SECRET_NAME = "openai"
-#: The game server aborts the director call after 2.5 s (DIRECTOR.TIMEOUT_MS);
-#: leave room for the network hop and answer 503 instead of hanging.
-DIRECTOR_UPSTREAM_TIMEOUT_S = 2.0
-#: The game server gives the debrief 15 s.
-DEBRIEF_UPSTREAM_TIMEOUT_S = 12.0
+#: The game server aborts the director call after 6 s (DIRECTOR.TIMEOUT_MS). The
+#: call is asynchronous - the tick never waits on it - so the budget only bounds
+#: staleness. Measured warm end-to-end: 2.2-2.9 s. Leave room for the network hop
+#: and answer 503 instead of hanging.
+DIRECTOR_UPSTREAM_TIMEOUT_S = 5.0
+#: The game server gives the debrief 25 s (measured: ~11.6 s end-to-end).
+DEBRIEF_UPSTREAM_TIMEOUT_S = 20.0
 
 
 def model_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:

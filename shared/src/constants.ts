@@ -141,7 +141,8 @@ export const COMBAT = {
 /** Optional AI layer. Off unless DIRECTOR_URL / DEBRIEF_URL are set. Never in the gameplay loop. */
 export const DIRECTOR = {
   INTERVAL_MS: 12_000,
-  TIMEOUT_MS: 2_500,
+  /** Async: the tick never waits. Measured warm round trip to Modal: 2.2-2.9 s. */
+  TIMEOUT_MS: 6_000,
   /** Clamp on how hard the LLM may bias boss targeting. */
   MAX_THREAT_BIAS: 2.0,
   MIN_THREAT_BIAS: 0.5,
