@@ -114,3 +114,17 @@ test('grenade explodes after its fuse; goblins spawn at full wave-1 hp', () => {
   assert.equal(gob.hp, gob.maxHp - damage!);
   assert.equal(h.state.hazards.size, 0);
 });
+
+test('a grenade thrown just before the dwarf goes down still detonates', () => {
+  const h = new Harness([createAbilitySystem()]);
+  const p = h.addPlayer('dwarf', OPEN);
+  h.start();
+  const target = { x: OPEN.x + 150, y: OPEN.y };
+  const gob = h.world.spawnCreep(target);
+  const { damage, delayMs } = CLASSES.dwarf.abilities[0].params;
+  h.command(p.id, 'ability', { slot: 0, ...target }).tick();
+  p.alive = false;   // lives.ts downs the thrower mid-fuse
+  h.tick(Math.ceil(delayMs! / 50) + 1);
+  assert.equal(gob.hp, gob.maxHp - damage!, 'the fuse does not care about its owner');
+  assert.equal(h.state.hazards.size, 0, 'hazard cleaned up');
+});

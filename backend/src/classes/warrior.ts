@@ -9,25 +9,18 @@
  */
 
 import {
-  MOD, PLAYER, TICK_MS, isCarrying,
+  MOD, PLAYER, isCarrying,
   type AbilityContext, type AbilityHandler, type ClassModule, type Player, type Vec2, type World,
 } from '@redbox/shared';
 
 /** The dash advances in steps this long so it stops flush against walls. */
 const DASH_STEP_PX = 4;
-/**
- * Longer than any real gap between two server ticks (the room clamps a tick to
- * 3 x TICK_MS). A bigger gap means the warrior was not ticked, i.e. downed.
- */
-const DOWNED_GAP_MS = TICK_MS * 4;
 
 interface Hostile { id: string; kind: 'creep' | 'crystal' | 'boss'; pos: Vec2; }
 
 /** A running Blade Dance. Numbers are captured from `ctx.params` at cast time. */
 interface Channel {
   wave: number;
-  /** Last tick this channel was upkept; a gap means the warrior was downed. */
-  lastSeenMs: number;
   endsAtMs: number;
   nextHitAtMs: number;
   tickMs: number;
@@ -156,7 +149,6 @@ const bladeDance: AbilityHandler = (ctx) => {
   if (!(tickMs > 0) || !(durationMs > 0)) return false;
   channelsOf(w).set(caster.id, {
     wave: w.wave,
-    lastSeenMs: w.now,
     endsAtMs: w.now + durationMs,
     nextHitAtMs: w.now,
     tickMs,
@@ -166,16 +158,13 @@ const bladeDance: AbilityHandler = (ctx) => {
   return true;
 };
 
-/** Blade Dance upkeep. Called every tick for every living warrior. */
+/** Blade Dance upkeep. Called every tick for every warrior, downed included. */
 function tick(w: World, player: Player) {
   const channels = channelsByWorld.get(w);
   const ch = channels?.get(player.id);
   if (!channels || !ch) return;
-  // Skipped ticks mean the warrior was downed (only living heroes are ticked).
-  const wasDowned = w.now - ch.lastSeenMs > DOWNED_GAP_MS;
-  ch.lastSeenMs = w.now;
   // Being downed, picking up a crate or a new wave ends the dance.
-  if (wasDowned || isCarrying(player) || ch.wave !== w.wave) {
+  if (!player.alive || isCarrying(player) || ch.wave !== w.wave) {
     channels.delete(player.id);
     return;
   }

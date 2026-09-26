@@ -15,9 +15,14 @@
 
 import {
   MAP, PLAYER, Outcome, classIdOf, spotsOf,
-  type Player, type System, type Vec2, type World,
+  type MatchEventType, type Player, type System, type Vec2, type World,
 } from '@redbox/shared';
 import type { ReviveResource } from '@redbox/shared/schema';
+
+/** What a crate press looks like in the log once crates.ts has resolved it. */
+const CRATE_RESOLUTIONS = new Set<MatchEventType>([
+  'box_picked', 'box_delivered', 'box_dropped', 'trap_triggered',
+]);
 
 /** Respawn/revive scatter around the base centre, so heroes do not stack. */
 const BASE_SCATTER_PX = 50;
@@ -37,6 +42,21 @@ function placeAtBase(w: World, p: Player) {
   p.hp = p.maxHp;
   p.respawnAtMs = 0;
   p.moving = false;
+}
+
+/**
+ * Heroes whose interact crates.ts already spent this tick. It runs before us, so
+ * one press must not both open a crate and claim the revive pickup next to it.
+ */
+function spentOnCrate(w: World): Set<string> {
+  const spent = new Set<string>();
+  const log = w.allEvents();
+  for (let i = log.length - 1; i >= 0; i--) {
+    const e = log[i]!;
+    if (e.atMs !== w.now) break;
+    if (e.playerId && CRATE_RESOLUTIONS.has(e.type)) spent.add(e.playerId);
+  }
+  return spent;
 }
 
 /** A hero that cannot respawn on its own and has a revive left. Downed first, then arrival order. */
@@ -102,7 +122,7 @@ export function createLivesSystem(): System {
   }
 
   function resolveRevives(w: World) {
-    const handled = new Set<string>();
+    const handled = spentOnCrate(w);
     for (const cmd of w.commands('interact')) {
       if (handled.has(cmd.playerId)) continue;
       handled.add(cmd.playerId);

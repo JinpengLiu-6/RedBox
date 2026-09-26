@@ -63,3 +63,19 @@ test('goblins - scaling, combat, death', () => {
   h.tick();
   assert.equal(h.state.creeps.has(goblin.id), false, 'hp 0 removes goblin');
 });
+
+test('a chasing goblin never walks into a wall', () => {
+  // Corridor at y=112: the direct line to the hero clips the wall block west of x=1700.
+  const h = new Harness([createGoblinsSystem()]);
+  const p = h.addPlayer('dwarf', { x: 1712, y: 112 });
+  h.start();
+  h.state.creeps.clear();
+  const creep = h.world.spawnCreep({ x: 1584, y: 112 });
+  for (let i = 0; i < 120; i++) {
+    h.tick();
+    assert.equal(
+      h.world.walkable(creep.x, creep.y), true,
+      `goblin left the floor at ${creep.x.toFixed(1)},${creep.y.toFixed(1)} on tick ${i}`,
+    );
+  }
+});
