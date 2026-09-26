@@ -3,17 +3,30 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { DIRECTOR, Outcome } from '@redbox/shared';
+import { DIRECTOR, Outcome, type DirectorSnapshot } from '@redbox/shared';
 import { Harness } from '../src/sim/harness.js';
 import { createDirectorSystem } from '../src/ai/director.js';
 import { createDebriefSystem } from '../src/ai/debrief.js';
 
+/**
+ * Real-time bound for one localhost round trip. It only exists so a genuinely
+ * broken director fails with a message instead of hanging; it is longer than
+ * the director's own abort (TIMEOUT_MS), so machine load alone can't trip it.
+ * The first fetch in a process also lazy-loads undici, which is slow under load.
+ */
+const ROUND_TRIP_BOUND_MS = DIRECTOR.TIMEOUT_MS + 4_000;
+/** The director sends its first snapshot this far into the match. */
+const FIRST_CALL_AT_MS = 8_000;
+
 /** Waits for an out-of-band HTTP round trip instead of guessing a fixed delay. */
-async function until(what: string, cond: () => boolean, timeoutMs = 5_000) {
+async function until(what: string, cond: () => boolean, timeoutMs = ROUND_TRIP_BOUND_MS) {
   const deadline = Date.now() + timeoutMs;
   while (!cond() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
-  assert.ok(cond(), `timed out waiting for ${what}`);
+  assert.ok(cond(), `timed out after ${timeoutMs} ms waiting for ${what}`);
 }
+
+/** One request received by the mock; its response is held until the test sends it. */
+interface HeldCall { snap: DirectorSnapshot; respond(): Promise<void>; }
 
 test('no env: director never speaks, state untouched; ending broadcasts a local debrief', () => {
   delete process.env.DIRECTOR_URL;
@@ -40,22 +53,28 @@ test('no env: director never speaks, state untouched; ending broadcasts a local 
 });
 
 test('with a mock DIRECTOR_URL: a decision is applied on a later tick and clamped', async () => {
-  let calls = 0;
+  // Timing is driven by the test, not by how fast this machine is: each call
+  // records the game time it was sent at (snapshot.elapsedMs) and its response
+  // is held until the test releases it.
+  const calls: HeldCall[] = [];
+  const decision = JSON.stringify({
+    focus: 'mage',
+    threatBias: { mage: 99, troll: 0.01 },
+    taunt: '  ' + 'X'.repeat(200),
+    reasoning: 'squish the mage',
+  });
   const server = http.createServer((req, res) => {
-    calls++;
     let body = '';
     req.on('data', (c) => { body += c; });
     req.on('end', () => {
-      const snap = JSON.parse(body);
-      assert.equal(snap.wave, 1);
-      assert.ok(Array.isArray(snap.players) && snap.players.length === 2);
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({
-        focus: 'mage',
-        threatBias: { mage: 99, troll: 0.01 },
-        taunt: '  ' + 'X'.repeat(200),
-        reasoning: 'squish the mage',
-      }));
+      calls.push({
+        snap: JSON.parse(body) as DirectorSnapshot,
+        respond: () => new Promise<void>((r) => {
+          if (res.writableEnded) { r(); return; }
+          res.setHeader('content-type', 'application/json');
+          res.end(decision, () => r());
+        }),
+      });
     });
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
@@ -66,10 +85,18 @@ test('with a mock DIRECTOR_URL: a decision is applied on a later tick and clampe
     const h = new Harness([createDirectorSystem()]);
     h.addPlayer('mage'); h.addPlayer('troll');
     h.start();
-    h.seconds(7.9);
-    assert.equal(calls, 0, 'first call is at 8s');
-    h.seconds(0.2);
-    await until('the director request', () => calls === 1);
+    h.seconds(8.1);
+    await until('the first director request', () => calls.length >= 1);
+    const first = calls[0].snap;
+    assert.equal(first.elapsedMs, FIRST_CALL_AT_MS, 'first call is at 8s, not before');
+    assert.equal(first.wave, 1);
+    assert.ok(Array.isArray(first.players) && first.players.length === 2);
+
+    // In flight: the tick never waits and nothing is applied, however long the LLM takes.
+    h.seconds(1);
+    assert.equal(h.messages('director').length, 0, 'nothing applied while the call is in flight');
+
+    await calls[0].respond();
     assert.equal(h.messages('director').length, 0, 'nothing applied until the next tick');
 
     // The answer lands between ticks, so tick until the system picks it up.
@@ -77,6 +104,7 @@ test('with a mock DIRECTOR_URL: a decision is applied on a later tick and clampe
       h.tick();
       return h.messages('director').length > 0;
     });
+    const appliedAtMs = h.state.director.updatedAtMs;
     const msgs = h.messages('director');
     assert.equal(msgs.length, 1);
     assert.equal(msgs[0].source, 'llm');
@@ -91,8 +119,17 @@ test('with a mock DIRECTOR_URL: a decision is applied on a later tick and clampe
     assert.equal(h.events('director_decision').length, 1);
 
     h.seconds(DIRECTOR.INTERVAL_MS / 1000 + 0.1);
-    await until('the second director request', () => calls === 2);
+    await until('the second director request', () => calls.length >= 2);
+    // Repeats INTERVAL_MS after the previous call was sent: exactly then, or on
+    // the apply tick if that answer was picked up later than that.
+    assert.equal(
+      calls[1].snap.elapsedMs,
+      Math.max(first.elapsedMs + DIRECTOR.INTERVAL_MS, appliedAtMs),
+      'repeats every INTERVAL_MS',
+    );
   } finally {
+    // Release anything still held so the server can close.
+    for (const c of calls) await c.respond();
     delete process.env.DIRECTOR_URL;
     await new Promise<void>((r) => server.close(() => r()));
   }
