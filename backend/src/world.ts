@@ -18,7 +18,7 @@ import {
   Creep, Hazard, ReviveResource, type Box, type MatchState, type Player,
 } from '@redbox/shared/schema';
 
-interface Intent { dx: number; dy: number; atMs: number; }
+interface Intent { dx: number; dy: number; }
 
 let idCounter = 0;
 const nextId = (prefix: string) => `${prefix}${(++idCounter).toString(36)}`;
@@ -147,12 +147,11 @@ export class WorldImpl implements World {
   setIntent(playerId: string, dx: number, dy: number) {
     const len = Math.hypot(dx, dy);
     const k = len > 1 ? 1 / len : 1;
-    this.intents.set(playerId, { dx: dx * k, dy: dy * k, atMs: this.now });
+    this.intents.set(playerId, { dx: dx * k, dy: dy * k });
   }
   intentFor(playerId: string): Vec2 | undefined {
     const i = this.intents.get(playerId);
-    if (!i || this.now - i.atMs > PLAYER.INPUT_MAX_AGE_MS) return undefined;
-    if (i.dx === 0 && i.dy === 0) return undefined;
+    if (!i || (i.dx === 0 && i.dy === 0)) return undefined;
     return { x: i.dx, y: i.dy };
   }
 

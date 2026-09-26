@@ -24,6 +24,22 @@ test('movement follows intent and cannot enter walls', () => {
   assert.ok(p.x > start.x, 'still moved up to the wall');
 });
 
+test('one Move message keeps the hero walking until the next one (held key, no resend)', () => {
+  const h = new Harness([createMovementSystem()]);
+  const start = tileCentre(4, 1);   // row 1 is open floor wall to wall
+  const p = h.addPlayer('mage', start);
+  h.start();
+  h.move(p.id, 1, 0);
+  h.seconds(0.5);
+  const half = p.x - start.x;
+  h.seconds(0.5);
+  assert.ok(p.x - start.x > half * 1.8, `still walking after 1s (${(p.x - start.x).toFixed(0)}px vs ${half.toFixed(0)}px at 0.5s)`);
+  h.move(p.id, 0, 0);
+  const stopped = p.x;
+  h.seconds(0.5);
+  assert.equal(p.x, stopped, 'a zero Move stops immediately');
+});
+
 test('nextStep walks around a wall to reach the other side', () => {
   const h = new Harness([createMovementSystem()]);
   const from = tileCentre(7, 8), to = tileCentre(16, 8);   // wall x=9..14 between them
