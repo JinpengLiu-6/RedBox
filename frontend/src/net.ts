@@ -9,10 +9,16 @@
 import { Client, Room } from 'colyseus.js';
 import {
   INTERP_DELAY_MS, PROTOCOL_VERSION, ROOM_NAME, normalizeRoomCode, resolveEndpoint,
-  ClientMessage, JoinError, ServerMessage,
+  ClientMessage, JoinError, ServerMessage as SharedServerMessage,
   type ClassId, type DebriefPayload, type DirectorPayload, type FxPayload,
   type JoinErrorCode, type JoinOptions, type MatchEvent, type MatchState, type UseAbilityPayload,
 } from '@redbox/shared';
+
+// TODO(voice): shared/src/messages.ts gains ServerMessage.BossVoice / DebriefVoice in
+// a parallel track. Once it lands, delete this shim and import ServerMessage directly
+// (drop the `as SharedServerMessage` alias). Spread first, so it still compiles
+// after the merge (the reverse order is TS2783 once shared defines the same keys).
+const ServerMessage = { ...SharedServerMessage, BossVoice: 'boss_voice', DebriefVoice: 'debrief_voice' } as const;
 
 /** Waits between reconnect attempts after a dropped connection (the server holds the seat 30 s). */
 const RECONNECT_DELAYS_MS = [500, 1_500, 3_000, 6_000, 10_000];
@@ -25,6 +31,10 @@ export interface NetHandlers {
   onEvent?(event: MatchEvent): void;
   onDirector?(d: DirectorPayload): void;
   onDebrief?(d: DebriefPayload): void;
+  /** Spoken Goblin King taunt: raw Ogg Opus bytes. Best-effort; the text is in state.director. */
+  onBossVoice?(audio: Uint8Array): void;
+  /** Spoken end-of-match recap: raw Ogg Opus bytes. Best-effort; the text arrives via onDebrief. */
+  onDebriefVoice?(audio: Uint8Array): void;
   onError?(code: string, message: string): void;
   /** The connection is gone for good (after any reconnect attempts). */
   onLeave?(code: number): void;
@@ -113,6 +123,16 @@ export class Net {
     room.onMessage(ServerMessage.Event, (m: { event: MatchEvent }) => handlers.onEvent?.(m.event));
     room.onMessage(ServerMessage.Director, (m: DirectorPayload) => handlers.onDirector?.(m));
     room.onMessage(ServerMessage.Debrief, (m: DebriefPayload) => handlers.onDebrief?.(m));
+    // Binary messages: colyseus.js hands these over as a Uint8Array VIEW into the
+    // socket frame (non-zero byteOffset), so consumers must copy before detaching.
+    // Registered even without a handler so colyseus.js doesn't warn per message,
+    // and here in bind() so they survive a reconnect (which yields a new Room).
+    room.onMessage(ServerMessage.BossVoice, (m: unknown) => {
+      if (m instanceof Uint8Array && m.byteLength > 0) handlers.onBossVoice?.(m);
+    });
+    room.onMessage(ServerMessage.DebriefVoice, (m: unknown) => {
+      if (m instanceof Uint8Array && m.byteLength > 0) handlers.onDebriefVoice?.(m);
+    });
     room.onMessage(ServerMessage.Error, (m: { code: string; message: string }) =>
       handlers.onError?.(m.code, m.message));
     room.onLeave((code) => {
@@ -183,6 +203,178 @@ export class Net {
     this.leaving = true;
     return this.room.leave();
   }
+}
+
+/** How long play() waits for a suspended AudioContext to resume before dropping the clip. */
+const RESUME_WAIT_MS = 250;
+const GESTURE_EVENTS = ['pointerdown', 'pointerup', 'keydown', 'touchend', 'click'] as const;
+
+/**
+ * Speaks the Goblin King's lines: plays the Ogg Opus clips from onBossVoice /
+ * onDebriefVoice. Strictly a bonus on top of text that is already on screen, so
+ * nothing here throws and failures cost at most one console.warn.
+ *
+ * Browsers block audio until the player interacts with the page: call unlock()
+ * inside a click / keydown handler, or once call unlockOnGesture(). Clips that
+ * arrive while audio is still blocked are dropped, never queued - a taunt about a
+ * moment that has already passed is worse than silence.
+ */
+export class VoicePlayer {
+  private ctx: AudioContext | null = null;
+  private out: GainNode | null = null;
+  private current: AudioBufferSourceNode | null = null;
+  /** Bumped by every play()/stop(); a clip that finishes decoding late sees it and bows out. */
+  private seq = 0;
+  private vol: number;
+  private primed = false;
+  private broken = false;
+  private warned = false;
+
+  constructor(volume = 1) { this.vol = clampVolume(volume); }
+
+  /** 0 = muted, 1 = full. Also applies to the clip currently playing. */
+  get volume(): number { return this.vol; }
+  set volume(v: number) {
+    this.vol = clampVolume(v);
+    if (this.out) this.out.gain.value = this.vol;
+  }
+
+  /** True once the browser lets this page make sound. */
+  get unlocked(): boolean { return this.ctx?.state === 'running'; }
+
+  /**
+   * Call synchronously from a user-gesture handler (click / keydown / touchend).
+   * Cheap and idempotent. Resolves true once audio is allowed.
+   */
+  unlock(): Promise<boolean> {
+    const ctx = this.context(true);
+    if (!ctx) return Promise.resolve(false);
+    if (!this.primed) {
+      // iOS Safari only unlocks after a sound is started inside the gesture itself.
+      this.primed = true;
+      try {
+        const blip = ctx.createBufferSource();
+        blip.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+        blip.connect(ctx.destination);
+        blip.start();
+      } catch { /* priming is only an iOS nicety */ }
+    }
+    if (ctx.state === 'running') return Promise.resolve(true);
+    return ctx.resume().then(() => true, () => false);
+  }
+
+  /**
+   * Unlocks on the player's first click / key press, and again after any later
+   * suspension (iOS suspends audio on calls and app switches). Returns a disposer.
+   */
+  unlockOnGesture(target: EventTarget = globalThis): () => void {
+    const onGesture = () => { if (!this.unlocked) void this.unlock(); };
+    // Capture phase: still fires if game code stops propagation.
+    for (const e of GESTURE_EVENTS) target.addEventListener(e, onGesture, { capture: true, passive: true });
+    return () => { for (const e of GESTURE_EVENTS) target.removeEventListener(e, onGesture, true); };
+  }
+
+  /**
+   * Decodes and plays one clip. A newer clip replaces the one playing: the boss
+   * never talks over himself. Never rejects; resolves true if the clip started.
+   */
+  async play(bytes: Uint8Array): Promise<boolean> {
+    const id = ++this.seq;
+    if (this.vol === 0 || bytes.byteLength === 0) return false;
+    // Without a prior gesture the context could only start suspended; don't create it yet.
+    const ctx = this.context(hasUserActivation());
+    if (!ctx) return false;
+
+    let clip: AudioBuffer;
+    try {
+      // decodeAudioData DETACHES the buffer it is given, and colyseus.js hands us a
+      // view into its socket frame: always decode a private copy of exactly these bytes.
+      const copy = new ArrayBuffer(bytes.byteLength);
+      new Uint8Array(copy).set(bytes);
+      clip = await ctx.decodeAudioData(copy);
+    } catch (err) {
+      // e.g. a Safari that can't decode Ogg Opus. The text is already on screen.
+      this.warnOnce('could not decode a Goblin King voice clip; showing text only', err);
+      return false;
+    }
+    if (id !== this.seq || !(await this.running(ctx)) || id !== this.seq) return false;
+
+    this.stopCurrent();
+    try {
+      const src = ctx.createBufferSource();
+      src.buffer = clip;
+      src.connect(this.out!);
+      src.onended = () => {
+        src.disconnect();
+        if (this.current === src) this.current = null;
+      };
+      src.start();
+      this.current = src;
+      return true;
+    } catch (err) {
+      this.warnOnce('could not play a Goblin King voice clip; showing text only', err);
+      return false;
+    }
+  }
+
+  /** Silences the current clip and drops any clip still decoding. */
+  stop(): void {
+    this.seq++;
+    this.stopCurrent();
+  }
+
+  private stopCurrent() {
+    const src = this.current;
+    this.current = null;
+    if (!src) return;
+    try { src.stop(); } catch { /* already ended */ }
+    src.disconnect();
+  }
+
+  /** Suspended = no gesture yet, a backgrounded tab, or an iOS interruption. */
+  private async running(ctx: AudioContext): Promise<boolean> {
+    if (ctx.state === 'running') return true;
+    if (ctx.state === 'closed' || !hasUserActivation()) return false;
+    // resume() only settles once the browser allows sound: give up quickly rather
+    // than play this clip late.
+    const resumed = ctx.resume().then(() => true, () => false);
+    const late = new Promise<boolean>((r) => setTimeout(() => r(false), RESUME_WAIT_MS));
+    return Promise.race([resumed, late]);
+  }
+
+  private context(create: boolean): AudioContext | null {
+    if (this.ctx || !create || this.broken) return this.ctx;
+    try {
+      const Ctor = globalThis.AudioContext
+        ?? (globalThis as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctor) throw new Error('Web Audio API unavailable');
+      const ctx = new Ctor();
+      const out = ctx.createGain();
+      out.gain.value = this.vol;
+      out.connect(ctx.destination);
+      this.ctx = ctx;
+      this.out = out;
+    } catch (err) {
+      this.broken = true;
+      this.warnOnce('no Web Audio; the Goblin King stays text-only', err);
+    }
+    return this.ctx;
+  }
+
+  private warnOnce(message: string, err: unknown) {
+    if (this.warned) return;
+    this.warned = true;
+    console.warn(`[voice] ${message}:`, err);
+  }
+}
+
+function clampVolume(v: number): number {
+  return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1;
+}
+
+/** Sticky activation: has the player interacted with the page yet? Unknown -> assume yes. */
+function hasUserActivation(): boolean {
+  return globalThis.navigator?.userActivation?.hasBeenActive ?? true;
 }
 
 /**

@@ -8,7 +8,7 @@ import {
   ARENA_H, ARENA_ROWS, ARENA_W, MAP, OUTCOME_LABEL, PHASE_LABEL, SLOT_UNLOCK_LABEL, TILE,
   MatchPhase, abilityCooldownProgress, classOf, cratesRemaining, hpPct, isAbilityUnlocked,
 } from '@redbox/shared';
-import { Net } from './net.js';
+import { Net, VoicePlayer } from './net.js';
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
@@ -16,6 +16,22 @@ const hud = document.getElementById('hud')!;
 const tauntEl = document.getElementById('taunt')!;
 const resize = () => { canvas.width = innerWidth; canvas.height = innerHeight; };
 addEventListener('resize', resize); resize();
+
+// ---- voice: browsers block audio until the first click / key press ----------
+const VOICE_VOLUME = 0.9;
+const voice = new VoicePlayer(VOICE_VOLUME);
+voice.unlockOnGesture();
+let voiceNote = '';
+let voiceSeq = 0;
+/** The recap belongs to the end screen; see silenceRecapOffEndScreen(). */
+let recapPlaying = false;
+const speak = (kind: 'taunt' | 'recap', audio: Uint8Array) => {
+  const mine = ++voiceSeq;
+  const size = `${(audio.byteLength / 1024).toFixed(1)} KB`;
+  void voice.play(audio).then((ok) => {
+    if (mine === voiceSeq) voiceNote = `last ${kind} ${size}: ${ok ? 'played' : 'not played'}`;
+  });
+};
 
 const net = new Net();
 /** Connection trouble, shown on top of the HUD until it clears. */
@@ -27,7 +43,12 @@ try {
       onError: (c, m) => (notice = `error ${c}: ${m}`),
       onReconnecting: () => (notice = 'Connection lost. Reconnecting...'),
       onReconnected: () => (notice = ''),
-      onLeave: () => (notice = 'Disconnected from the game. Reload the page to play again.'),
+      onLeave: () => {
+        notice = 'Disconnected from the game. Reload the page to play again.';
+        voice.stop();
+      },
+      onBossVoice: (audio) => { recapPlaying = false; speak('taunt', audio); },
+      onDebriefVoice: (audio) => { recapPlaying = true; speak('recap', audio); },
     },
   );
 } catch (err) {
@@ -44,6 +65,14 @@ function readyAgainInLobby() {
   const phase = net.state.phase;
   if (phase === MatchPhase.Lobby && lastPhase !== MatchPhase.Lobby && net.me && !net.me.ready) net.ready();
   lastPhase = phase;
+}
+
+// A recap talks for up to ~40 s. Once the room leaves the end screen (anyone's
+// Enter restarts everyone) it must not talk over the lobby or the next match.
+// stop() also drops a clip that is still decoding. A taunt replaces the recap
+// by itself, so it clears the flag and is never cut off here.
+function silenceRecapOffEndScreen() {
+  if (recapPlaying && net.state.phase !== MatchPhase.Ended) { recapPlaying = false; voice.stop(); }
 }
 
 // ---- camera ---------------------------------------------------------------
@@ -68,6 +97,7 @@ addEventListener('keydown', (e) => {
     const a = toWorld(mouse.x, mouse.y);
     net.useAbility(k === 'q' ? 0 : k === 'e' ? 1 : 2, a.x, a.y);
   } else if (k === 'f') net.interact();
+  else if (k === 'm' && !e.repeat) voice.volume = voice.volume > 0 ? 0 : VOICE_VOLUME;
   else if (k === 'enter' && net.state.phase === MatchPhase.Ended) net.restart();
   keys.add(k); sendMove();
 });
@@ -85,6 +115,7 @@ function frame() {
   const s = net.state;
   if (!s?.crystals) { requestAnimationFrame(frame); return; }
   readyAgainInLobby();
+  silenceRecapOffEndScreen();
   const me = net.me;
   const mePos = me ? net.positionOf(me.id, me) : MAP.BASE;
   cam.x = Math.max(0, Math.min(MAP.WIDTH_PX - canvas.width, mePos.x - canvas.width / 2));
@@ -136,6 +167,7 @@ function frame() {
     me ? `${classOf(me).name}  hp ${Math.round(hpPct(me) * 100)}%  lives ${me.lives}` : '',
     skills,
     s.phase === MatchPhase.Ended ? `RESULT: ${OUTCOME_LABEL[s.outcome]}   (Enter = restart)` : '',
+    `voice ${!voice.unlocked ? 'locked: click or press a key' : voice.volume === 0 ? 'muted (M)' : 'on (M = mute)'}${voiceNote ? '   ' + voiceNote : ''}`,
   ].filter(Boolean).join('\n');
   tauntEl.textContent = s.director.taunt ? `"${s.director.taunt}" — ${s.director.reasoning}` : '';
   requestAnimationFrame(frame);
