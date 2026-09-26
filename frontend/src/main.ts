@@ -23,6 +23,8 @@ const voice = new VoicePlayer(VOICE_VOLUME);
 voice.unlockOnGesture();
 let voiceNote = '';
 let voiceSeq = 0;
+/** The recap belongs to the end screen; see silenceRecapOffEndScreen(). */
+let recapPlaying = false;
 const speak = (kind: 'taunt' | 'recap', audio: Uint8Array) => {
   const mine = ++voiceSeq;
   const size = `${(audio.byteLength / 1024).toFixed(1)} KB`;
@@ -41,9 +43,12 @@ try {
       onError: (c, m) => (notice = `error ${c}: ${m}`),
       onReconnecting: () => (notice = 'Connection lost. Reconnecting...'),
       onReconnected: () => (notice = ''),
-      onLeave: () => (notice = 'Disconnected from the game. Reload the page to play again.'),
-      onBossVoice: (audio) => speak('taunt', audio),
-      onDebriefVoice: (audio) => speak('recap', audio),
+      onLeave: () => {
+        notice = 'Disconnected from the game. Reload the page to play again.';
+        voice.stop();
+      },
+      onBossVoice: (audio) => { recapPlaying = false; speak('taunt', audio); },
+      onDebriefVoice: (audio) => { recapPlaying = true; speak('recap', audio); },
     },
   );
 } catch (err) {
@@ -60,6 +65,14 @@ function readyAgainInLobby() {
   const phase = net.state.phase;
   if (phase === MatchPhase.Lobby && lastPhase !== MatchPhase.Lobby && net.me && !net.me.ready) net.ready();
   lastPhase = phase;
+}
+
+// A recap talks for up to ~40 s. Once the room leaves the end screen (anyone's
+// Enter restarts everyone) it must not talk over the lobby or the next match.
+// stop() also drops a clip that is still decoding. A taunt replaces the recap
+// by itself, so it clears the flag and is never cut off here.
+function silenceRecapOffEndScreen() {
+  if (recapPlaying && net.state.phase !== MatchPhase.Ended) { recapPlaying = false; voice.stop(); }
 }
 
 // ---- camera ---------------------------------------------------------------
@@ -102,6 +115,7 @@ function frame() {
   const s = net.state;
   if (!s?.crystals) { requestAnimationFrame(frame); return; }
   readyAgainInLobby();
+  silenceRecapOffEndScreen();
   const me = net.me;
   const mePos = me ? net.positionOf(me.id, me) : MAP.BASE;
   cam.x = Math.max(0, Math.min(MAP.WIDTH_PX - canvas.width, mePos.x - canvas.width / 2));
