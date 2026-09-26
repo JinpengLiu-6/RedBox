@@ -6,3 +6,8 @@ dist/
 .DS_Store
 .context/
 .playwright-mcp/
+
+# deploy artifacts
+redbox-itch.zip
+frontend/dist/
+.vercel

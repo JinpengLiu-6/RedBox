@@ -62,3 +62,8 @@ export function resolveEndpoint(explicit?: string): string {
 /** Room codes are 4 chars from an alphabet with no look-alikes, for reading aloud. */
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const ROOM_CODE_LENGTH = 4;
+
+/** What players type ("  ab3k ") -> the room id ("AB3K"). The code IS the Colyseus room id. */
+export function normalizeRoomCode(input: string): string {
+  return input.trim().toUpperCase();
+}

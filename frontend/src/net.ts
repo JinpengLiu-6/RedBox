@@ -8,7 +8,7 @@
 
 import { Client, Room } from 'colyseus.js';
 import {
-  INTERP_DELAY_MS, PROTOCOL_VERSION, ROOM_NAME, resolveEndpoint,
+  INTERP_DELAY_MS, PROTOCOL_VERSION, ROOM_NAME, normalizeRoomCode, resolveEndpoint,
   ClientMessage, ServerMessage,
   type ClassId, type DebriefPayload, type DirectorPayload, type FxPayload,
   type JoinOptions, type MatchEvent, type MatchState, type UseAbilityPayload,
@@ -31,18 +31,24 @@ export class Net {
   get sessionId(): string { return this.room.sessionId; }
   get me() { return this.state.players.get(this.sessionId); }
 
-  async connect(opts: { name: string; classId?: ClassId; roomCode?: string; endpoint?: string },
+  /**
+   * mode 'quick'  - join any open lobby or create one (default)
+   * mode 'create' - new PRIVATE room; share `net.state.roomCode` with friends
+   * mode 'join'   - join a friend's room by its 4-character code
+   */
+  async connect(opts: { name: string; classId?: ClassId; mode?: 'quick' | 'create' | 'join'; roomCode?: string; endpoint?: string },
                 handlers: NetHandlers = {}) {
     const client = new Client(resolveEndpoint(opts.endpoint ?? import.meta.env?.VITE_GAME_SERVER));
-    const join: JoinOptions = {
-      protocolVersion: PROTOCOL_VERSION,
-      name: opts.name,
-      classId: opts.classId,
-      roomCode: opts.roomCode,
-    };
-    this.room = opts.roomCode
-      ? await client.joinById<MatchState>(opts.roomCode, join)
-      : await client.joinOrCreate<MatchState>(ROOM_NAME, join);
+    const join: JoinOptions = { protocolVersion: PROTOCOL_VERSION, name: opts.name, classId: opts.classId };
+    const mode = opts.mode ?? (opts.roomCode ? 'join' : 'quick');
+    if (mode === 'join') {
+      if (!opts.roomCode) throw new Error('roomCode is required to join a room');
+      this.room = await client.joinById<MatchState>(normalizeRoomCode(opts.roomCode), join);
+    } else if (mode === 'create') {
+      this.room = await client.create<MatchState>(ROOM_NAME, { ...join, private: true });
+    } else {
+      this.room = await client.joinOrCreate<MatchState>(ROOM_NAME, join);
+    }
 
     this.room.onMessage(ServerMessage.Fx, (m: FxPayload) => handlers.onFx?.(m));
     this.room.onMessage(ServerMessage.Event, (m: { event: MatchEvent }) => handlers.onEvent?.(m.event));

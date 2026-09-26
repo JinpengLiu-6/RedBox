@@ -25,9 +25,13 @@ export class HeistRoom extends Room<MatchState> {
   world!: WorldImpl;
   private countdownElapsed = 0;
 
-  onCreate(options: { roomCode?: string } = {}) {
-    const state = createMatchState(options.roomCode ?? randomRoomCode());
+  onCreate(options: { roomCode?: string; private?: boolean } = {}) {
+    const state = createMatchState((options.roomCode ?? randomRoomCode()).toUpperCase());
     this.setState(state);
+    // The 4-char code IS the Colyseus room id, so friends can joinById(code).
+    this.roomId = state.roomCode;
+    // Private rooms are reachable only by code, never by quick-match.
+    if (options.private) void this.setPrivate(true);
     this.setMetadata({ roomCode: state.roomCode });
     this.setPatchRate(1000 / PATCH_RATE);
     this.world = this.newWorld();
